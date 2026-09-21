@@ -76,6 +76,10 @@ public struct SessionStateMachine: Sendable {
         return true
     }
 
+    public mutating func setIncludedInHUD(_ included: Bool) {
+        snapshot.persisted.isIncludedInHUD = included
+    }
+
     private func rejected(_ rejection: EventApplyRejection, oldState: SessionRuntimeState) -> EventApplyResult {
         EventApplyResult(
             accepted: false,

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import TraceflowCore
 
@@ -19,11 +20,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: HUDPanelController?
     private var statusItem: NSStatusItem?
     private var timer: Timer?
+    private var visibilityObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panelController = HUDPanelController(model: model)
         if model.isHUDVisible { panelController?.show() }
         configureStatusItem()
+        visibilityObserver = model.$isHUDVisible.dropFirst().sink { [weak self] visible in
+            if visible { self?.panelController?.show() } else { self?.panelController?.hide() }
+            self?.statusItem?.menu?.item(at: 0)?.title = visible ? "隐藏 HUD" : "显示 HUD"
+        }
         model.startListening()
         timer = Timer.scheduledTimer(timeInterval: 0.25, target: self, selector: #selector(timerFired), userInfo: nil, repeats: true)
         RunLoop.main.add(timer!, forMode: .common)

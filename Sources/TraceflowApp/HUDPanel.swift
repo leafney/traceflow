@@ -23,12 +23,14 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         super.init(window: panel)
         panel.delegate = self
         restorePosition()
+        NotificationCenter.default.addObserver(self, selector: #selector(resetPosition), name: .traceflowResetHUDPosition, object: nil)
     }
 
     required init?(coder: NSCoder) { nil }
     func show() { window?.orderFrontRegardless() }
     func hide() { window?.orderOut(nil) }
     func windowDidMove(_ notification: Notification) { savePosition() }
+    @objc private func resetPosition() { positionAtTop(of: NSScreen.main) }
 
     func ensureVisible() {
         guard let window else { return }

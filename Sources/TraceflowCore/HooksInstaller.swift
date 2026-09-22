@@ -8,6 +8,13 @@ public enum HooksInstallerError: LocalizedError {
     }
 }
 
+public struct HooksInspection: Sendable, Equatable {
+    public let hasTraceflowConfiguration: Bool
+    public let issues: [String]
+    public var isComplete: Bool { hasTraceflowConfiguration && issues.isEmpty }
+    public var summary: String { issues.first ?? "配置完整" }
+}
+
 public struct HooksInstaller {
     public let hooksURL: URL
     public let installedNotifierURL: URL
@@ -55,12 +62,46 @@ public struct HooksInstaller {
     }
 
     public func isInstalled() -> Bool {
-        guard FileManager.default.isExecutableFile(atPath: installedNotifierURL.path), let root = try? readRoot(), let hooks = root["hooks"] as? [String: Any] else { return false }
-        return Self.events.allSatisfy { event in
-            (hooks[event] as? [[String: Any]] ?? []).contains { group in
-                (group["hooks"] as? [[String: Any]] ?? []).contains { ($0["command"] as? String) == Self.shellQuote(installedNotifierURL.path) }
+        inspect().isComplete
+    }
+
+    public func inspect() -> HooksInspection {
+        guard let root = try? readRoot(), let hooks = root["hooks"] as? [String: Any] else {
+            return HooksInspection(hasTraceflowConfiguration: false, issues: ["Hooks 配置无法读取"])
+        }
+        let expectedCommand = Self.shellQuote(installedNotifierURL.path)
+        let hasConfiguration = hooks.values.contains { value in
+            (value as? [[String: Any]] ?? []).contains { group in
+                (group["hooks"] as? [[String: Any]] ?? []).contains { handler in
+                    isTraceflowCommand(handler["command"] as? String)
+                }
             }
         }
+        var issues: [String] = []
+        if !FileManager.default.isExecutableFile(atPath: installedNotifierURL.path) {
+            issues.append("Traceflow 转发器缺失或不可执行")
+        }
+        for event in Self.events {
+            let groups = hooks[event] as? [[String: Any]] ?? []
+            let matchingGroup = groups.first { group in
+                guard event != "SessionStart" || (group["matcher"] as? String) == "startup|resume|clear" else { return false }
+                return (group["hooks"] as? [[String: Any]] ?? []).contains { handler in
+                    guard (handler["type"] as? String) == "command",
+                          (handler["command"] as? String) == expectedCommand,
+                          number(handler["timeout"]) == 3 else { return false }
+                    let async = handler["async"] as? Bool
+                    return ["Stop", "SessionEnd"].contains(event) ? async != true : async == true
+                }
+            }
+            if matchingGroup == nil { issues.append("\(event) 定义缺失或不完整") }
+        }
+        return HooksInspection(hasTraceflowConfiguration: hasConfiguration, issues: issues)
+    }
+
+    private func number(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        return nil
     }
 
     private func readRoot() throws -> [String: Any] {

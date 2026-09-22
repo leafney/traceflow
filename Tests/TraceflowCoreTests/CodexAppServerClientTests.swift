@@ -99,4 +99,22 @@ final class CodexAppServerClientTests: XCTestCase {
         XCTAssertEqual(result.sessions.first?.settingsListSortAt, originalSortDate)
         XCTAssertEqual(result.sessions.first?.lastUpdatedAt, Date(timeIntervalSince1970: 100))
     }
+
+    func testOfficialSourcesExcludeInternalThreads() {
+        XCTAssertEqual(SessionSourcePolicy.allowedAppServerKinds, ["cli", "vscode", "appServer"])
+        for internalSource in ["exec", "unknown", "subAgent", "subAgentReview", "subAgentOther"] {
+            XCTAssertFalse(SessionSourcePolicy.isAllowedAppServerKind(internalSource))
+            XCTAssertTrue(SessionSourcePolicy.isInternalHookSource(internalSource))
+        }
+        XCTAssertTrue(SessionSourcePolicy.isAllowedAppServerKind(nil))
+        XCTAssertFalse(SessionSourcePolicy.isInternalHookSource(nil))
+    }
+
+    func testImportDefensivelyFiltersExplicitInternalSources() {
+        let official = CodexThreadSummary(id: "official", name: nil, cwd: "/work/app", createdAt: .now, updatedAt: .now, sourceKind: "cli")
+        let internalThread = CodexThreadSummary(id: "internal", name: nil, cwd: "/work/app", createdAt: .now, updatedAt: .now, sourceKind: "subAgentReview")
+        let result = CodexThreadImporter.merge([official, internalThread], into: [], nextRotationIndex: 0)
+        XCTAssertEqual(result.sessions.map(\.sessionID), ["official"])
+        XCTAssertEqual(result.addedCount, 1)
+    }
 }

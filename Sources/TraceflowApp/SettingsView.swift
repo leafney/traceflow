@@ -123,6 +123,6 @@ struct SettingsView: View {
         }
     }
 
-    private var healthTitle: String { switch model.hooksHealth.state { case .notInstalled: "未安装"; case .pendingVerification: "待验证"; case .healthy: "正常"; case .error: "异常" } }
-    private var healthColor: Color { switch model.hooksHealth.state { case .notInstalled: .gray; case .pendingVerification: .yellow; case .healthy: .green; case .error: .red } }
+    private var healthTitle: String { switch model.hooksHealth.state { case .notInstalled: "未安装"; case .needsRepair: "需要修复"; case .pendingVerification: "待验证"; case .healthy: "正常"; case .error: "异常" } }
+    private var healthColor: Color { switch model.hooksHealth.state { case .notInstalled: .gray; case .needsRepair, .error: .red; case .pendingVerification: .yellow; case .healthy: .green } }
 }

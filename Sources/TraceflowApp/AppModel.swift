@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var expandedProjectKeys: Set<String> = []
     @Published private(set) var displayedSession: SessionSnapshot?
     @Published private(set) var hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装 Traceflow Hooks")
+    @Published private(set) var localCommunicationHealth = LocalCommunicationHealth(state: .error, detail: "尚未启动本地通信")
     @Published var hooksActionMessage: String?
     @Published private(set) var isVerifyingHooks = false
     @Published private(set) var isSyncingSessions = false
@@ -47,8 +48,16 @@ final class AppModel: ObservableObject {
             guard let envelope = try? decoder.decode(HookEnvelope.self, from: data) else { logger.log("error=invalid_envelope"); return }
             DispatchQueue.main.async { [weak self] in self?.apply(envelope) }
         }
-        do { try server.start(); self.server = server; logger.log("socket=started"); refreshHooksHealth() }
-        catch { logger.log("error=socket_start code=\(error)"); hooksHealth = HooksHealth(state: .error, detail: "本地通信启动失败") }
+        do {
+            try server.start()
+            self.server = server
+            localCommunicationHealth = LocalCommunicationHealth(state: .healthy, detail: "本地通信正常")
+            logger.log("socket=started")
+            refreshHooksHealth()
+        } catch {
+            logger.log("error=socket_start code=\(error)")
+            localCommunicationHealth = LocalCommunicationHealth(state: .error, detail: "本地通信启动失败")
+        }
     }
 
     func stopListening() { server?.stop(); server = nil; logger.flush() }
@@ -188,6 +197,7 @@ final class AppModel: ObservableObject {
         let checkID = "__traceflow_health_check__:\(UUID().uuidString)"
         pendingHealthCheckID = checkID
         isVerifyingHooks = true
+        localCommunicationHealth = LocalCommunicationHealth(state: .testing, detail: "正在测试转发通道")
         hooksActionMessage = "正在测试转发器、本地通信和应用接收链路……"
         let command = HooksInstaller.shellQuote(installer.installedNotifierURL.path)
         Task.detached { [weak self] in
@@ -240,10 +250,15 @@ final class AppModel: ObservableObject {
                 pendingHealthCheckID = nil
                 isVerifyingHooks = false
                 defaults.set(Date(), forKey: "lastHookEvent")
+                localCommunicationHealth = LocalCommunicationHealth(state: .healthy, detail: "转发通道正常")
                 refreshHooksHealth()
                 hooksActionMessage = "转发通道正常。注意：Codex 是否信任仍以 /hooks 页面为准。"
                 logger.log("hooks=health_check_success")
             }
+            return
+        }
+        guard !SessionSourcePolicy.isInternalHookSource(envelope.payload.source) else {
+            logger.log("event=discarded reason=internal_source")
             return
         }
         var machine = machines[id] ?? makeMachine(for: envelope)
@@ -345,13 +360,15 @@ final class AppModel: ObservableObject {
         guard pendingHealthCheckID == checkID else { return }
         pendingHealthCheckID = nil
         isVerifyingHooks = false
-        hooksHealth = HooksHealth(state: .error, detail: "转发通道测试失败")
+        localCommunicationHealth = LocalCommunicationHealth(state: .error, detail: "转发通道测试失败")
         hooksActionMessage = "\(message)。请先修复 Hooks，再在 Codex 中执行 /hooks 并信任。"
         logger.log("hooks=health_check_failed")
     }
 
     private func refreshHooksHealth() {
-        if !makeHooksInstaller().isInstalled() { hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装完整 Traceflow Hooks") }
+        let inspection = makeHooksInstaller().inspect()
+        if !inspection.hasTraceflowConfiguration { hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装 Traceflow Hooks") }
+        else if !inspection.isComplete { hooksHealth = HooksHealth(state: .needsRepair, detail: inspection.summary) }
         else if let last = defaults.object(forKey: "lastHookEvent") as? Date { hooksHealth = HooksHealth(state: .healthy, detail: "最近事件：\(last.formatted(date: .abbreviated, time: .shortened))") }
         else { hooksHealth = HooksHealth(state: .pendingVerification, detail: "请在 /hooks 信任后测试转发通道") }
     }

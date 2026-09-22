@@ -6,17 +6,19 @@ public struct CodexThreadSummary: Codable, Sendable, Equatable {
     public let cwd: String
     public let createdAt: Date
     public let updatedAt: Date
+    public let sourceKind: String?
 
-    public init(id: String, name: String?, cwd: String, createdAt: Date, updatedAt: Date) {
+    public init(id: String, name: String?, cwd: String, createdAt: Date, updatedAt: Date, sourceKind: String? = nil) {
         self.id = id
         self.name = name
         self.cwd = cwd
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.sourceKind = sourceKind
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, cwd, createdAt, updatedAt
+        case id, name, cwd, createdAt, updatedAt, sourceKind, source
     }
 
     public init(from decoder: Decoder) throws {
@@ -26,6 +28,8 @@ public struct CodexThreadSummary: Codable, Sendable, Equatable {
         cwd = try container.decode(String.self, forKey: .cwd)
         createdAt = Date(timeIntervalSince1970: TimeInterval(try container.decode(Int64.self, forKey: .createdAt)))
         updatedAt = Date(timeIntervalSince1970: TimeInterval(try container.decode(Int64.self, forKey: .updatedAt)))
+        sourceKind = try container.decodeIfPresent(String.self, forKey: .sourceKind)
+            ?? container.decodeIfPresent(String.self, forKey: .source)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -35,6 +39,7 @@ public struct CodexThreadSummary: Codable, Sendable, Equatable {
         try container.encode(cwd, forKey: .cwd)
         try container.encode(Int64(createdAt.timeIntervalSince1970), forKey: .createdAt)
         try container.encode(Int64(updatedAt.timeIntervalSince1970), forKey: .updatedAt)
+        try container.encodeIfPresent(sourceKind, forKey: .sourceKind)
     }
 }
 
@@ -80,7 +85,7 @@ public enum CodexThreadImporter {
         var addedCount = 0
         var updatedCount = 0
 
-        for thread in threads {
+        for thread in threads where SessionSourcePolicy.isAllowedAppServerKind(thread.sourceKind) {
             let threadName = TitleBuilder.summary(from: thread.name)
             if var existing = sessionsByID[thread.id] {
                 existing.projectPath = thread.cwd
@@ -218,10 +223,7 @@ public struct CodexAppServerClient: Sendable {
                 "archived": false,
                 "sortKey": "updated_at",
                 "sortDirection": "desc",
-                "sourceKinds": [
-                    "cli", "vscode", "exec", "appServer", "subAgent", "subAgentReview",
-                    "subAgentCompact", "subAgentThreadSpawn", "subAgentOther", "unknown",
-                ],
+                "sourceKinds": SessionSourcePolicy.allowedAppServerKinds,
             ]
             if let cursor { params["cursor"] = cursor }
             try send(

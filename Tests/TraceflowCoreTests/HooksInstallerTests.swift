@@ -76,4 +76,58 @@ final class HooksInstallerTests: XCTestCase {
         XCTAssertEqual(String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8), "ok\n")
         try? FileManager.default.removeItem(at: root)
     }
+
+    func testInspectionRejectsIncorrectTimeoutAndAsyncWithoutAffectingOtherHooks() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let hooks = root.appendingPathComponent("hooks.json")
+        let source = root.appendingPathComponent("source")
+        let installed = root.appendingPathComponent("installed")
+        try Data("binary".utf8).write(to: source)
+        let installer = HooksInstaller(hooksURL: hooks, installedNotifierURL: installed, sourceNotifierURL: source)
+        try installer.installOrRepair()
+
+        var object = try JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as! [String: Any]
+        var allHooks = object["hooks"] as! [String: Any]
+        var stopGroups = allHooks["Stop"] as! [[String: Any]]
+        var handlers = stopGroups[0]["hooks"] as! [[String: Any]]
+        handlers[0]["timeout"] = 9
+        handlers[0]["async"] = true
+        stopGroups[0]["hooks"] = handlers
+        allHooks["Stop"] = stopGroups
+        object["hooks"] = allHooks
+        try JSONSerialization.data(withJSONObject: object).write(to: hooks)
+
+        let inspection = installer.inspect()
+        XCTAssertTrue(inspection.hasTraceflowConfiguration)
+        XCTAssertFalse(inspection.isComplete)
+        XCTAssertTrue(inspection.issues.contains { $0.contains("Stop") })
+        XCTAssertFalse(installer.isInstalled())
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testInspectionRequiresSessionStartMatcherAndExecutableNotifier() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let hooks = root.appendingPathComponent("hooks.json")
+        let source = root.appendingPathComponent("source")
+        let installed = root.appendingPathComponent("installed")
+        try Data("binary".utf8).write(to: source)
+        let installer = HooksInstaller(hooksURL: hooks, installedNotifierURL: installed, sourceNotifierURL: source)
+        try installer.installOrRepair()
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: installed.path)
+
+        var object = try JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as! [String: Any]
+        var allHooks = object["hooks"] as! [String: Any]
+        var groups = allHooks["SessionStart"] as! [[String: Any]]
+        groups[0]["matcher"] = "startup"
+        allHooks["SessionStart"] = groups
+        object["hooks"] = allHooks
+        try JSONSerialization.data(withJSONObject: object).write(to: hooks)
+
+        let inspection = installer.inspect()
+        XCTAssertTrue(inspection.issues.contains { $0.contains("转发器") })
+        XCTAssertTrue(inspection.issues.contains { $0.contains("SessionStart") })
+        try? FileManager.default.removeItem(at: root)
+    }
 }

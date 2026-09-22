@@ -197,7 +197,12 @@ final class AppModel: ObservableObject {
     private func makeMachine(for envelope: HookEnvelope) -> SessionStateMachine {
         defer { nextRotationIndex += 1 }
         let now = Date()
-        let persisted = PersistedSession(sessionID: envelope.payload.sessionID, projectPath: envelope.payload.cwd, projectName: TitleBuilder.projectName(from: envelope.payload.cwd), discoveredAt: now, lastUpdatedAt: now, rotationIndex: nextRotationIndex)
+        let persisted = HookSessionFactory.makePersistedSession(
+            sessionID: envelope.payload.sessionID,
+            cwd: envelope.payload.cwd,
+            now: now,
+            rotationIndex: nextRotationIndex
+        )
         return SessionStateMachine(snapshot: SessionSnapshot(persisted: persisted))
     }
 

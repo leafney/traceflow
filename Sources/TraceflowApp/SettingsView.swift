@@ -1,4 +1,5 @@
 import SwiftUI
+import TraceflowCore
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
@@ -26,13 +27,14 @@ struct SettingsView: View {
                     if model.isSyncingSessions { ProgressView().controlSize(.small) }
                 }
                 if let message = model.sessionSyncMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
-                if model.sessions.isEmpty { Text("尚未发现会话").foregroundStyle(.secondary) }
-                ForEach(model.sessions) { session in
-                    HStack {
-                        Toggle("", isOn: Binding(get: { session.persisted.isIncludedInHUD }, set: { model.setIncluded($0, sessionID: session.id) })).labelsHidden()
-                        VStack(alignment: .leading) { Text(session.displayTitle); Text("\(session.persisted.projectPath ?? "未知路径") · \(String(session.id.prefix(8))) · \(session.persisted.lastUpdatedAt.formatted())").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                        Spacer(); Text(session.state.rawValue).foregroundStyle(.secondary)
-                        Button(role: .destructive) { model.deleteSession(session.id) } label: { Image(systemName: "trash") }.buttonStyle(.borderless)
+                if model.sessionProjects.isEmpty { Text("尚未发现会话").foregroundStyle(.secondary) }
+                ForEach(model.sessionProjects) { project in
+                    projectHeader(project)
+                    if model.expandedProjectKeys.contains(project.id) {
+                        ForEach(project.sessions) { session in
+                            sessionRow(session)
+                                .padding(.leading, 24)
+                        }
                     }
                 }
                 if !model.sessions.isEmpty { Button("清空全部记录", role: .destructive) { model.clearSessions() } }
@@ -41,7 +43,84 @@ struct SettingsView: View {
                 Button("打开日志目录") { model.openLogsDirectory() }
                 Button("清除日志", role: .destructive) { model.clearLogs() }
             }
-        }.formStyle(.grouped).padding().frame(minWidth: 540, minHeight: 480)
+        }.formStyle(.grouped).padding().frame(minWidth: 680, minHeight: 600)
+    }
+
+    @ViewBuilder
+    private func projectHeader(_ project: SessionProjectGroup) -> some View {
+        let expanded = model.expandedProjectKeys.contains(project.id)
+        HStack(spacing: 10) {
+            Button {
+                model.setProjectExpanded(!expanded, projectKey: project.id)
+            } label: {
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(expanded ? "收起项目 \(project.displayName)" : "展开项目 \(project.displayName)")
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(project.displayName).fontWeight(.semibold).lineLimit(1).help(project.displayName)
+                Text(project.projectPath ?? "未知路径").font(.caption).foregroundStyle(.secondary).lineLimit(1).help(project.projectPath ?? "未知路径")
+            }
+            Spacer(minLength: 8)
+            Text("已启用 \(project.enabledCount) / \(project.totalCount)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            Menu("批量操作") {
+                Button("全部启用") { model.setProjectIncluded(true, projectKey: project.id) }
+                    .disabled(project.selectionState == .all)
+                Button("全部关闭") { model.setProjectIncluded(false, projectKey: project.id) }
+                    .disabled(project.selectionState == .none)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("项目 \(project.displayName) 批量操作")
+        }
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func sessionRow(_ session: SessionSnapshot) -> some View {
+        let title = sessionListTitle(session)
+        HStack(spacing: 10) {
+            Toggle("参与 HUD", isOn: Binding(
+                get: { session.persisted.isIncludedInHUD },
+                set: { model.setIncluded($0, sessionID: session.id) }
+            ))
+            .labelsHidden()
+            .accessibilityLabel("\(title) 参与 HUD")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).lineLimit(1).help(title)
+                Text("\(String(session.id.prefix(8))) · \(session.persisted.lastUpdatedAt.formatted())")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text(runtimeStateTitle(session.state)).foregroundStyle(.secondary)
+            Button(role: .destructive) { model.deleteSession(session.id) } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("删除会话 \(title)")
+        }
+    }
+
+    private func sessionListTitle(_ session: SessionSnapshot) -> String {
+        let value = session.conversationSummary ?? session.persisted.codexThreadName
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "未命名会话" : trimmed
+    }
+
+    private func runtimeStateTitle(_ state: SessionRuntimeState) -> String {
+        switch state {
+        case .idle: "待机"
+        case .running: "执行中"
+        case .attention: "等待权限"
+        case .completed: "已完成"
+        }
     }
 
     private var healthTitle: String { switch model.hooksHealth.state { case .notInstalled: "未安装"; case .pendingVerification: "待验证"; case .healthy: "正常"; case .error: "异常" } }

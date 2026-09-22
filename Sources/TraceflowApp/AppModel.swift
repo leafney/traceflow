@@ -68,7 +68,7 @@ final class AppModel: ObservableObject {
 
     func openSettingsWindow() {
         if settingsController == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 520), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 680), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             window.title = "Traceflow 设置"
             window.contentView = NSHostingView(rootView: SettingsView(model: self))
             window.center()

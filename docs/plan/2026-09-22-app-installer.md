@@ -2,7 +2,7 @@
 
 Related discussion: [`docs/discuss/2026-09-22-app-installer.md`](../discuss/2026-09-22-app-installer.md)
 
-状态：待批准
+状态：已批准并完成实施
 目标版本：MVP 0.1 修复版
 
 ## Problem Statement

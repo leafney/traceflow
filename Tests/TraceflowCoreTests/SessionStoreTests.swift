@@ -46,7 +46,40 @@ final class SessionStoreTests: XCTestCase {
         try Data("bad".utf8).write(to: url)
         let store = SessionStore(url: url)
         XCTAssertThrowsError(try store.load())
+        guard case .corrupted = store.health else { return XCTFail("损坏文件应进入保护状态") }
+        let session = PersistedSession(sessionID: "new", discoveredAt: .now, lastUpdatedAt: .now, rotationIndex: 0)
+        XCTAssertThrowsError(try store.save([session])) { error in
+            XCTAssertEqual(error as? SessionStoreError, .writeProtected)
+        }
         XCTAssertEqual(try String(contentsOf: url), "bad")
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testBackupAndRebuildPreservesCorruptBytesAndCreatesEmptyDocument() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("sessions.json")
+        let corrupt = Data("{not-json".utf8)
+        try corrupt.write(to: url)
+        let store = SessionStore(url: url)
+        XCTAssertThrowsError(try store.load())
+
+        let backup = try store.backupAndRebuild()
+
+        XCTAssertEqual(try Data(contentsOf: backup), corrupt)
+        XCTAssertEqual(try store.load(), [])
+        XCTAssertEqual(store.health, .healthy)
+        let rebuilt = try JSONDecoder.traceflow.decode(SessionDocument.self, from: Data(contentsOf: url))
+        XCTAssertEqual(rebuilt, SessionDocument(sessions: []))
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testBackupAndRebuildRequiresCorruptState() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = SessionStore(url: directory.appendingPathComponent("sessions.json"))
+        XCTAssertEqual(try store.load(), [])
+        XCTAssertThrowsError(try store.backupAndRebuild()) { error in
+            XCTAssertEqual(error as? SessionStoreError, .noCorruptFile)
+        }
     }
 }

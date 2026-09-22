@@ -14,6 +14,8 @@ final class AppModel: ObservableObject {
     @Published var hooksActionMessage: String?
     @Published private(set) var isVerifyingHooks = false
     @Published private(set) var isSyncingSessions = false
+    @Published private(set) var sessionDataHealth: SessionDataHealth = .healthy
+    @Published private(set) var isRebuildingSessions = false
     @Published var sessionSyncMessage: String?
     @Published var isHUDVisible: Bool { didSet { defaults.set(isHUDVisible, forKey: "hudVisible") } }
     @Published var displayDuration: Double { didSet { defaults.set(displayDuration, forKey: "displayDuration") } }
@@ -79,6 +81,7 @@ final class AppModel: ObservableObject {
     }
 
     func setIncluded(_ included: Bool, sessionID: String) {
+        guard sessionDataHealth.allowsSaving else { return }
         guard var machine = machines[sessionID] else { return }
         machine.setIncludedInHUD(included)
         machines[sessionID] = machine
@@ -86,6 +89,7 @@ final class AppModel: ObservableObject {
     }
 
     func setProjectIncluded(_ included: Bool, projectKey: String) {
+        guard sessionDataHealth.allowsSaving else { return }
         let sessionIDs = sessionProjects.first(where: { $0.id == projectKey })?.sessions.map(\.id) ?? []
         guard !sessionIDs.isEmpty else { return }
         for sessionID in sessionIDs {
@@ -104,11 +108,13 @@ final class AppModel: ObservableObject {
     }
 
     func deleteSession(_ sessionID: String) {
+        guard sessionDataHealth.allowsSaving else { return }
         machines.removeValue(forKey: sessionID)
         refreshSessions(); persistSessions()
     }
 
     func clearSessions() {
+        guard sessionDataHealth.allowsSaving else { return }
         machines.removeAll(); nextRotationIndex = 0; expandedProjectKeys.removeAll()
         defaults.removeObject(forKey: "expandedProjectKeys")
         refreshSessions(); persistSessions()
@@ -119,6 +125,43 @@ final class AppModel: ObservableObject {
     func openLogsDirectory() {
         try? FileManager.default.createDirectory(at: TraceflowPaths.logs(), withIntermediateDirectories: true)
         NSWorkspace.shared.open(TraceflowPaths.logs())
+    }
+
+    func openSessionDataDirectory() {
+        let directory = TraceflowPaths.sessions().deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(directory)
+    }
+
+    func retrySessionSave() {
+        do {
+            try sessionStore.retrySave(sessions.map(\.persisted))
+            sessionDataHealth = sessionStore.health
+        } catch {
+            sessionDataHealth = sessionStore.health
+            sessionSyncMessage = "保存失败：\(error.localizedDescription)"
+        }
+    }
+
+    func backupAndRebuildSessions() {
+        guard !isRebuildingSessions else { return }
+        isRebuildingSessions = true
+        do {
+            let backup = try sessionStore.backupAndRebuild()
+            machines.removeAll()
+            nextRotationIndex = 0
+            expandedProjectKeys.removeAll()
+            defaults.removeObject(forKey: "expandedProjectKeys")
+            sessionDataHealth = sessionStore.health
+            refreshSessions()
+            sessionSyncMessage = "损坏数据已备份为 \(backup.lastPathComponent)，正在重新同步……"
+            isRebuildingSessions = false
+            syncCodexSessions()
+        } catch {
+            sessionDataHealth = sessionStore.health
+            isRebuildingSessions = false
+            sessionSyncMessage = "重建失败：\(error.localizedDescription)"
+        }
     }
 
     func resetHUDPosition() { NotificationCenter.default.post(name: .traceflowResetHUDPosition, object: nil) }
@@ -177,7 +220,7 @@ final class AppModel: ObservableObject {
     }
 
     func syncCodexSessions() {
-        guard !isSyncingSessions else { return }
+        guard !isSyncingSessions, sessionDataHealth.allowsSaving else { return }
         isSyncingSessions = true
         sessionSyncMessage = "正在从 Codex 读取会话摘要……"
         Task.detached { [weak self] in
@@ -248,12 +291,22 @@ final class AppModel: ObservableObject {
             let restored = try sessionStore.load()
             for persisted in restored { machines[persisted.sessionID] = SessionStateMachine(snapshot: SessionSnapshot(persisted: persisted, state: .idle)); nextRotationIndex = max(nextRotationIndex, persisted.rotationIndex + 1) }
             refreshSessions()
-        } catch { hooksHealth = HooksHealth(state: .error, detail: "会话记录损坏"); logger.log("error=session_store_read") }
+            sessionDataHealth = sessionStore.health
+        } catch {
+            sessionDataHealth = sessionStore.health
+            logger.log("error=session_store_read")
+        }
     }
 
     private func persistSessions() {
-        do { try sessionStore.save(sessions.map(\.persisted)) }
-        catch { logger.log("error=session_store_write") }
+        guard sessionDataHealth.allowsSaving else { return }
+        do {
+            try sessionStore.save(sessions.map(\.persisted))
+            sessionDataHealth = sessionStore.health
+        } catch {
+            sessionDataHealth = sessionStore.health
+            logger.log("error=session_store_write")
+        }
     }
 
     private func mergeCodexThreads(_ threads: [CodexThreadSummary]) {

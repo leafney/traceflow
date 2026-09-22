@@ -74,7 +74,10 @@ final class AppModel: ObservableObject {
             machines[id] = machine; changed = true
             _ = scheduler.reportStateChange(sessionID: id, newState: .idle, stateChanged: true, now: now)
         }
-        if changed { refreshSessions() }
+        if changed {
+            refreshSessions()
+            persistSessions()
+        }
     }
 
     func openSettingsWindow() {
@@ -265,11 +268,13 @@ final class AppModel: ObservableObject {
         let result = machine.apply(envelope, now: Date())
         guard result.accepted else { logger.log("event=discarded reason=\(String(describing: result.rejection))"); return }
         machines[id] = machine
-        refreshSessions()
+        publishSessions()
+        let membershipDecision = scheduler.updateSessions(sessions, now: Date(), updateExistingStates: false)
+        let eventDecision = scheduler.reportStateChange(sessionID: id, newState: machine.snapshot.state, stateChanged: result.stateChanged, now: Date())
         persistSessions()
         defaults.set(Date(), forKey: "lastHookEvent")
         refreshHooksHealth()
-        if let decision = scheduler.reportStateChange(sessionID: id, newState: machine.snapshot.state, stateChanged: result.stateChanged, now: Date()) { updateDisplay(decision.sessionID) }
+        if let decision = eventDecision ?? membershipDecision { updateDisplay(decision.sessionID) }
         else if displayedSession?.id == id { updateDisplay(id) }
         logger.log("event=\(envelope.payload.eventName.rawValue) state=\(result.oldState.rawValue)->\(result.newState.rawValue)")
     }
@@ -287,6 +292,12 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshSessions() {
+        publishSessions()
+        if let decision = scheduler.updateSessions(sessions, now: Date()) { updateDisplay(decision.sessionID) }
+        else if let id = scheduler.currentSessionID { updateDisplay(id) }
+    }
+
+    private func publishSessions() {
         sessions = machines.values.map(\.snapshot).sorted { $0.persisted.rotationIndex < $1.persisted.rotationIndex }
         sessionProjects = SessionProjectGrouper.groups(from: sessions)
         let validProjectKeys = Set(sessionProjects.map(\.id))
@@ -295,8 +306,6 @@ final class AppModel: ObservableObject {
             expandedProjectKeys = retainedExpandedKeys
             defaults.set(Array(expandedProjectKeys).sorted(), forKey: "expandedProjectKeys")
         }
-        if let decision = scheduler.updateSessions(sessions, now: Date()) { updateDisplay(decision.sessionID) }
-        else if let id = scheduler.currentSessionID { updateDisplay(id) }
     }
 
     private func updateDisplay(_ id: String?) { displayedSession = id.flatMap { machines[$0]?.snapshot } }

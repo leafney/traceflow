@@ -117,4 +117,18 @@ final class CodexAppServerClientTests: XCTestCase {
         XCTAssertEqual(result.sessions.map(\.sessionID), ["official"])
         XCTAssertEqual(result.addedCount, 1)
     }
+
+    func testUnresponsiveAppServerTimesOutAndTerminatesWithinBound() {
+        let client = CodexAppServerClient(
+            executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
+            arguments: ["-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"],
+            responseTimeout: 0.1,
+            overallTimeout: 0.2
+        )
+        let started = Date()
+        XCTAssertThrowsError(try client.listThreads()) { error in
+            XCTAssertEqual(error as? CodexAppServerError, .timeout)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+    }
 }

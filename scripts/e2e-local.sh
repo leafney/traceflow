@@ -11,7 +11,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd "$repo_root"
-[ -x .build/release/Traceflow ] || swift build -c release >/dev/null
+module_cache="$test_home/module-cache"
+/bin/mkdir -p "$module_cache"
+SWIFTPM_MODULECACHE_OVERRIDE="$module_cache" CLANG_MODULE_CACHE_PATH="$module_cache" swift build -c release >/dev/null
 TRACEFLOW_HOME="$test_home" .build/release/Traceflow &
 app_pid="$!"
 

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 public struct CodexThreadSummary: Codable, Sendable, Equatable {
     public let id: String
@@ -145,15 +146,18 @@ public struct CodexAppServerClient: Sendable {
     public let executableURL: URL
     public let arguments: [String]
     public let responseTimeout: TimeInterval
+    public let overallTimeout: TimeInterval
 
     public init(
         executableURL: URL = URL(fileURLWithPath: "/bin/zsh"),
         arguments: [String] = ["-lic", "exec codex app-server --listen stdio://"],
-        responseTimeout: TimeInterval = 15
+        responseTimeout: TimeInterval = 15,
+        overallTimeout: TimeInterval = 30
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.responseTimeout = responseTimeout
+        self.overallTimeout = overallTimeout
     }
 
     public func listThreads() throws -> [CodexThreadSummary] {
@@ -186,12 +190,12 @@ public struct CodexAppServerClient: Sendable {
             throw CodexAppServerError.launchFailed(error.localizedDescription)
         }
 
+        let overallDeadline = Date(timeIntervalSinceNow: overallTimeout)
         defer {
             output.fileHandleForReading.readabilityHandler = nil
             errorOutput.fileHandleForReading.readabilityHandler = nil
             try? input.fileHandleForWriting.close()
-            if process.isRunning { process.terminate() }
-            process.waitUntilExit()
+            stop(process)
         }
 
         try send(
@@ -211,7 +215,7 @@ public struct CodexAppServerClient: Sendable {
             ],
             to: input.fileHandleForWriting
         )
-        _ = try checkedResult(collector.waitForResponse(id: 1, timeout: responseTimeout))
+        _ = try checkedResult(collector.waitForResponse(id: 1, timeout: remainingTimeout(until: overallDeadline)))
         try send(["method": "initialized", "params": [:]], to: input.fileHandleForWriting)
 
         var allThreads: [CodexThreadSummary] = []
@@ -230,7 +234,7 @@ public struct CodexAppServerClient: Sendable {
                 ["method": "thread/list", "id": requestID, "params": params],
                 to: input.fileHandleForWriting
             )
-            let result = try checkedResult(collector.waitForResponse(id: requestID, timeout: responseTimeout))
+            let result = try checkedResult(collector.waitForResponse(id: requestID, timeout: remainingTimeout(until: overallDeadline)))
             let page = try CodexThreadListPage.decode(from: result)
             allThreads.append(contentsOf: page.threads)
             cursor = page.nextCursor
@@ -255,6 +259,20 @@ public struct CodexAppServerClient: Sendable {
         }
         guard let result = response["result"] else { throw CodexAppServerError.invalidResponse }
         return result
+    }
+
+    private func remainingTimeout(until deadline: Date) throws -> TimeInterval {
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0 else { throw CodexAppServerError.timeout }
+        return min(responseTimeout, remaining)
+    }
+
+    private func stop(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        let gracefulDeadline = Date(timeIntervalSinceNow: 1)
+        while process.isRunning, Date() < gracefulDeadline { Thread.sleep(forTimeInterval: 0.01) }
+        if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
     }
 }
 

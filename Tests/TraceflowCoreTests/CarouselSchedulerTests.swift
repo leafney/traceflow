@@ -71,6 +71,20 @@ final class CarouselSchedulerTests: XCTestCase {
         XCTAssertEqual(decision?.reason, .selectionChanged)
     }
 
+    func testMembershipRefreshCanPreserveOldStateUntilEventIsReported() {
+        var scheduler = CarouselScheduler()
+        let a = session("a", 0)
+        var b = session("b", 1)
+        _ = scheduler.updateSessions([a, b], now: base)
+        b.state = .attention
+
+        XCTAssertNil(scheduler.updateSessions([a, b], now: base.addingTimeInterval(1), updateExistingStates: false))
+        let decision = scheduler.reportStateChange(sessionID: "b", newState: .attention, stateChanged: true, now: base.addingTimeInterval(1))
+
+        XCTAssertEqual(decision?.reason, .redPreemption)
+        XCTAssertEqual(decision?.sessionID, "b")
+    }
+
     private func session(_ id: String, _ index: Int, state: SessionRuntimeState = .idle) -> SessionSnapshot {
         SessionSnapshot(
             persisted: PersistedSession(sessionID: id, isIncludedInHUD: true, discoveredAt: base, lastUpdatedAt: base, rotationIndex: index),

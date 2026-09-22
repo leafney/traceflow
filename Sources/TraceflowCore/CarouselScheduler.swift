@@ -34,10 +34,18 @@ public struct CarouselScheduler: Sendable {
     public init() {}
 
     @discardableResult
-    public mutating func updateSessions(_ sessions: [SessionSnapshot], now: Date) -> CarouselDecision? {
+    public mutating func updateSessions(
+        _ sessions: [SessionSnapshot],
+        now: Date,
+        updateExistingStates: Bool = true
+    ) -> CarouselDecision? {
         rotationOrder = sessions.sorted { $0.persisted.rotationIndex < $1.persisted.rotationIndex }.map(\.id)
         included = Set(sessions.filter { $0.persisted.isIncludedInHUD }.map(\.id))
-        states = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.state) })
+        let sessionIDs = Set(sessions.map(\.id))
+        states = states.filter { sessionIDs.contains($0.key) }
+        for session in sessions where updateExistingStates || states[session.id] == nil {
+            states[session.id] = session.state
+        }
         pruneQueues()
 
         guard !included.isEmpty else {

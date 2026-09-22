@@ -84,11 +84,17 @@ public final class UnixSocketServer: @unchecked Sendable {
         let client = Darwin.accept(fd, nil, nil)
         guard client >= 0 else { return }
         defer { Darwin.close(client) }
+        var timeout = timeval(tv_sec: 1, tv_usec: 0)
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 16_384)
         while true {
             let count = Darwin.read(client, &buffer, buffer.count)
-            if count <= 0 { break }
+            if count == 0 { break }
+            if count < 0 {
+                if errno == EINTR { continue }
+                return
+            }
             data.append(buffer, count: count)
             if data.count > 1_048_576 { return }
         }

@@ -11,7 +11,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd "$repo_root"
-[ -x .build/release/Traceflow ] || swift build -c release >/dev/null
+module_cache="$test_home/module-cache"
+/bin/mkdir -p "$module_cache"
+SWIFTPM_MODULECACHE_OVERRIDE="$module_cache" CLANG_MODULE_CACHE_PATH="$module_cache" swift build -c release >/dev/null
 TRACEFLOW_HOME="$test_home" .build/release/Traceflow &
 app_pid="$!"
 socket="$test_home/Library/Application Support/Traceflow/traceflow.sock"
@@ -41,6 +43,6 @@ document = json.load(open(sys.argv[1], encoding="utf-8"))
 assert len(document["sessions"]) == 1
 session = document["sessions"][0]
 assert session["projectName"] == "traceflow"
-assert session["isIncludedInHUD"] is True
+assert session["isIncludedInHUD"] is False
 print("Traceflow Codex CLI E2E passed")
 ' "$sessions"

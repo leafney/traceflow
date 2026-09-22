@@ -32,6 +32,8 @@ document = json.load(open(sys.argv[1], encoding="utf-8"))
 session = document["sessions"][0]
 assert session["sessionID"] == "e2e-session"
 assert session["projectName"] == "traceflow-demo"
+assert session["isIncludedInHUD"] is False
+assert "settingsListSortAt" in session
 assert "conversationSummary" not in session
 print("Traceflow local E2E passed")
 ' "$sessions"

@@ -43,6 +43,34 @@ final class CarouselSchedulerTests: XCTestCase {
         XCTAssertEqual(scheduler.updateSessions([a, excludedB], now: base)?.reason, .placeholder)
     }
 
+    func testEnablingFirstSessionFromEmptySelectionDisplaysIt() {
+        var scheduler = CarouselScheduler()
+        var a = session("a", 0)
+        a.persisted.isIncludedInHUD = false
+        XCTAssertEqual(scheduler.updateSessions([a], now: base)?.reason, .placeholder)
+
+        a.persisted.isIncludedInHUD = true
+        let decision = scheduler.updateSessions([a], now: base.addingTimeInterval(1))
+
+        XCTAssertEqual(decision?.sessionID, "a")
+        XCTAssertEqual(decision?.reason, .selectionChanged)
+    }
+
+    func testClosingCurrentProjectMovesToEnabledSessionInAnotherProject() {
+        var scheduler = CarouselScheduler()
+        var a = session("a", 0)
+        var b = session("b", 1)
+        let c = session("c", 2)
+        _ = scheduler.updateSessions([a, b, c], now: base)
+
+        a.persisted.isIncludedInHUD = false
+        b.persisted.isIncludedInHUD = false
+        let decision = scheduler.updateSessions([a, b, c], now: base.addingTimeInterval(1))
+
+        XCTAssertEqual(decision?.sessionID, "c")
+        XCTAssertEqual(decision?.reason, .selectionChanged)
+    }
+
     private func session(_ id: String, _ index: Int, state: SessionRuntimeState = .idle) -> SessionSnapshot {
         SessionSnapshot(
             persisted: PersistedSession(sessionID: id, isIncludedInHUD: true, discoveredAt: base, lastUpdatedAt: base, rotationIndex: index),

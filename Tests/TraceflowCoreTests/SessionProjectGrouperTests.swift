@@ -69,6 +69,26 @@ final class SessionProjectGrouperTests: XCTestCase {
         XCTAssertEqual(partial.totalCount, 2)
     }
 
+    func testGroupsOneHundredFiftySessionsDeterministically() {
+        let sessions = (0..<150).map { index in
+            snapshot(
+                "session-\(index)",
+                path: "/work/project-\(index % 10)",
+                sort: TimeInterval(index),
+                rotation: index,
+                included: index.isMultiple(of: 3)
+            )
+        }
+
+        let first = SessionProjectGrouper.groups(from: sessions)
+        let second = SessionProjectGrouper.groups(from: sessions.reversed())
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(first.count, 10)
+        XCTAssertEqual(first.reduce(0) { $0 + $1.totalCount }, 150)
+        XCTAssertEqual(first.first?.sessions.first?.id, "session-149")
+    }
+
     private func snapshot(
         _ id: String,
         path: String? = "/work/app",

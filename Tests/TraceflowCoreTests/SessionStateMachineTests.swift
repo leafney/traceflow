@@ -45,6 +45,17 @@ final class SessionStateMachineTests: XCTestCase {
         XCTAssertEqual(machine.snapshot.state, .idle)
     }
 
+    func testRepeatedStopRestartsCompletionTimeout() {
+        var machine = makeMachine()
+        _ = machine.apply(envelope(.stop, uptime: 1), now: base)
+        _ = machine.apply(envelope(.stop, uptime: 2), now: base.addingTimeInterval(300))
+
+        XCTAssertFalse(machine.expireCompletion(now: base.addingTimeInterval(899)))
+        XCTAssertTrue(machine.expireCompletion(now: base.addingTimeInterval(900)))
+        XCTAssertEqual(machine.snapshot.state, .idle)
+        XCTAssertNil(machine.snapshot.completedAt)
+    }
+
     func testSessionEndKeepsSessionButIdlesIt() {
         var machine = makeMachine()
         _ = machine.apply(envelope(.permissionRequest, uptime: 1), now: base)

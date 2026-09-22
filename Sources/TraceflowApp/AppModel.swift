@@ -77,8 +77,8 @@ final class AppModel: ObservableObject {
         var changed = false
         for id in machines.keys {
             guard var machine = machines[id], machine.expireCompletion(now: now) else { continue }
-            machines[id] = machine; changed = true
-            _ = scheduler.reportStateChange(sessionID: id, newState: .idle, stateChanged: true, now: now)
+            machines[id] = machine
+            changed = true
         }
         if changed {
             refreshSessions()

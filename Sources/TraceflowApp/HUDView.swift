@@ -7,40 +7,96 @@ struct HUDView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(spacing: 0) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 17, weight: .semibold))
-                .frame(width: 40)
-            separator
-            ZStack {
-                Text(model.displayedSession?.displayTitle ?? "Traceflow")
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .id(model.displayedSession?.id ?? "placeholder")
-                    .transition(reduceMotion ? .opacity : .asymmetric(insertion: .move(edge: .bottom), removal: .move(edge: .top)))
+        Group {
+            switch model.hudLayoutMode {
+            case .horizontal: horizontalContent
+            case .vertical: verticalContent
             }
-            .padding(.horizontal, 8)
-            separator
-            HStack(spacing: 8) {
-                StatusLight(kind: .attention, active: model.displayedSession?.state == .attention, glow: model.hudGlowMode == .strong ? 2 : 1, reduceMotion: reduceMotion)
-                StatusLight(kind: .running, active: model.displayedSession?.state == .running, glow: model.hudGlowMode == .strong ? 2 : 1, reduceMotion: reduceMotion)
-                StatusLight(kind: .completed, active: model.displayedSession?.state == .completed, glow: model.hudGlowMode == .strong ? 2 : 1, reduceMotion: reduceMotion)
-            }
-            .frame(width: 104)
         }
-        .frame(width: 420, height: 40)
+        .frame(width: model.hudLayoutMode == .horizontal ? 420 : 40,
+               height: model.hudLayoutMode == .horizontal ? 40 : 420)
         .background(Color.black.opacity(colorScheme == .dark ? 0.18 : 0.06), in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(colorScheme == .dark ? 0.16 : 0.24), lineWidth: 0.5))
         .contentShape(Capsule())
         .animation(.easeInOut(duration: 0.25), value: model.displayedSession?.id)
     }
 
-    private var separator: some View {
-        Rectangle()
-            .fill(.white.opacity(colorScheme == .dark ? 0.12 : 0.18))
-            .frame(width: 0.5, height: 22)
+    private var horizontalContent: some View {
+        HStack(spacing: 0) {
+            icon.frame(width: 40, height: 40)
+            horizontalSeparator
+            ZStack {
+                title
+                    .frame(width: 263, alignment: .leading)
+                    .id(model.displayedSession?.id ?? "placeholder")
+                    .transition(titleTransition(vertical: false))
+            }
+            .frame(width: 275, height: 40)
+            .clipped()
+            horizontalSeparator
+            HStack(spacing: 4) { lights }
+                .frame(width: 104, height: 40)
+        }
+    }
+
+    private var verticalContent: some View {
+        VStack(spacing: 0) {
+            icon.frame(width: 40, height: 40)
+            verticalSeparator
+            ZStack {
+                title
+                    .frame(width: 263, height: 20, alignment: .leading)
+                    .rotationEffect(.degrees(90))
+                    .frame(width: 40, height: 275)
+                    .id(model.displayedSession?.id ?? "placeholder")
+                    .transition(titleTransition(vertical: true))
+            }
+            .frame(width: 40, height: 275)
+            .clipped()
+            verticalSeparator
+            VStack(spacing: 4) { lights }
+                .frame(width: 40, height: 104)
+        }
+    }
+
+    private var icon: some View {
+        Image(systemName: "sparkles")
+            .font(.system(size: 17, weight: .semibold))
+    }
+
+    private var title: some View {
+        Text(model.displayedSession?.displayTitle ?? "Traceflow")
+            .font(.system(size: 13, weight: .medium, design: .rounded))
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    @ViewBuilder private var lights: some View {
+        StatusLight(kind: .attention, active: model.displayedSession?.state == .attention, glow: model.hudGlowMode, reduceMotion: reduceMotion)
+        StatusLight(kind: .running, active: model.displayedSession?.state == .running, glow: model.hudGlowMode, reduceMotion: reduceMotion)
+        StatusLight(kind: .completed, active: model.displayedSession?.state == .completed, glow: model.hudGlowMode, reduceMotion: reduceMotion)
+    }
+
+    private func titleTransition(vertical: Bool) -> AnyTransition {
+        if reduceMotion { return .opacity }
+        return .asymmetric(
+            insertion: .move(edge: vertical ? .leading : .bottom),
+            removal: .move(edge: vertical ? .trailing : .top)
+        )
+    }
+
+    private var separatorColor: Color {
+        .white.opacity(colorScheme == .dark ? 0.12 : 0.18)
+    }
+
+    private var horizontalSeparator: some View {
+        Rectangle().fill(separatorColor).frame(width: 0.5, height: 22)
+            .frame(width: 0.5, height: 40)
+    }
+
+    private var verticalSeparator: some View {
+        Rectangle().fill(separatorColor).frame(width: 22, height: 0.5)
+            .frame(width: 40, height: 0.5)
     }
 }
 
@@ -61,27 +117,55 @@ private enum StatusLightKind {
 private struct StatusLight: View {
     let kind: StatusLightKind
     let active: Bool
-    let glow: Int
+    let glow: HUDGlowMode
     let reduceMotion: Bool
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active || reduceMotion || kind == .completed)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active || reduceMotion)) { timeline in
             let phase = animationPhase(at: timeline.date)
+            let intensity = activeOpacity(phase: phase)
+            let scale = reduceMotion ? 1.0 : 1.0 + phase * (glow == .strong ? 0.30 : 0.15)
+
             Circle()
-                .fill(kind.color.opacity(active ? activeOpacity(phase: phase) : 0.18))
-                .frame(width: 20, height: 20)
-                .scaleEffect(active ? activeScale(phase: phase) : 1)
-                .shadow(
-                    color: active ? kind.color.opacity(glowOpacity * activeOpacity(phase: phase)) : .clear,
-                    radius: active ? glowRadius : 0
-                )
+                .fill(kind.color.opacity(active ? intensity : 0.18))
+                .frame(width: 28, height: 28)
+                .background {
+                    if active {
+                        glowLayer(diameter: 52, peakOpacity: glow == .strong ? 0.45 : 0.28, intensity: intensity)
+                            .scaleEffect(scale)
+                        glowLayer(diameter: 40, peakOpacity: glow == .strong ? 0.70 : 0.50, intensity: intensity)
+                            .scaleEffect(scale)
+                    }
+                }
+                .shadow(color: active ? kind.color.opacity((glow == .strong ? 0.70 : 0.50) * intensity) : .clear,
+                        radius: active ? (glow == .strong ? 9 : 6) : 0)
         }
         .accessibilityHidden(true)
     }
 
+    private func glowLayer(diameter: CGFloat, peakOpacity: Double, intensity: Double) -> some View {
+        Circle()
+            .fill(RadialGradient(
+                stops: [
+                    .init(color: kind.color.opacity(peakOpacity * intensity), location: 0),
+                    .init(color: kind.color.opacity(peakOpacity * intensity * 0.58), location: 0.32),
+                    .init(color: .clear, location: 0.62)
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: diameter / 2
+            ))
+            .frame(width: diameter, height: diameter)
+    }
+
     private func animationPhase(at date: Date) -> Double {
         guard active, !reduceMotion else { return 1 }
-        let period = kind == .attention ? 0.56 : 2.30
+        let period: Double
+        switch kind {
+        case .attention: period = 0.56
+        case .running: period = 2.30
+        case .completed: period = 2.80
+        }
         let progress = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
         if kind == .attention {
             switch progress {
@@ -102,12 +186,4 @@ private struct StatusLight: View {
         case .completed: return 1
         }
     }
-
-    private func activeScale(phase: Double) -> Double {
-        guard active, !reduceMotion, kind == .running else { return 1 }
-        return 0.94 + phase * 0.12
-    }
-
-    private var glowRadius: CGFloat { [4, 7, 10][min(2, max(0, glow))] }
-    private var glowOpacity: Double { [0.35, 0.52, 0.70][min(2, max(0, glow))] }
 }

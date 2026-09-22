@@ -2,7 +2,7 @@
 
 Related discussion: [`docs/discuss/2026-09-22-grouped-session-management.md`](../discuss/2026-09-22-grouped-session-management.md)
 
-状态：待批准
+状态：已批准并完成实施
 目标版本：MVP 0.1 设置页优化
 
 ## 0. 文档执行规则
@@ -327,3 +327,13 @@ deleteSession(sessionID)
 - 项目批量选择是解决“逐项关闭一百多个会话”的核心能力，不能只做视觉分组。
 - 默认关闭会让首次同步后 HUD 暂时显示占位，这是预期行为；设置页应在同步结果附近提示用户展开项目并选择需要参与 HUD 的会话。
 - `ui-ux-pro-max` 的本地规则建议大量重复操作提供批量能力，并在 SwiftUI 设置界面继续使用原生 `Form` 和列表/分区控件。本方案据此采用渐进披露、批量选择和原生可访问控件。
+
+## Implementation Verification
+
+完成日期：2026-09-22
+
+- Swift 自动测试：37 项全部通过。
+- 项目分组压力用例：150 条会话稳定分为 10 个项目，重复输入顺序不影响结果。
+- 发布构建：`dist/Traceflow.app` 构建、Info.plist 校验及本机签名通过。
+- 本地 Hook 闭环：通过，新增会话记录默认不参与 HUD，并写入设置页排序时间。
+- 隔离安装：首次安装和重复覆盖安装均通过，继续保持仅菜单栏应用。

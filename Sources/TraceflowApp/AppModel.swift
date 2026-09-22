@@ -184,6 +184,7 @@ final class AppModel: ObservableObject {
     }
 
     func resetHUDPosition() { NotificationCenter.default.post(name: .traceflowResetHUDPosition, object: nil) }
+    func logDiagnostic(_ message: String) { logger.log(message) }
 
     func installHooks() {
         do { try makeHooksInstaller().installOrRepair(); defaults.removeObject(forKey: "lastHookEvent"); hooksActionMessage = "安装完成。请在 Codex 中重新执行 /hooks 并信任新定义，然后点击“测试转发通道”。"; refreshHooksHealth() }

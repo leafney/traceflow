@@ -9,6 +9,28 @@ final class HUDPositionGeometryTests: XCTestCase {
         XCTAssertEqual(HUDPositionGeometry.defaultFrame(for: .horizontal, visible: visible), CGRect(x: 490, y: 948, width: 420, height: 40))
     }
 
+    func testSharedMetricsFillEachLayoutExactly() {
+        XCTAssertEqual(HUDMetrics.iconLength + HUDMetrics.separatorThickness + HUDMetrics.titleLength + HUDMetrics.separatorThickness + HUDMetrics.lightAreaLength,
+                       HUDMetrics.longAxis)
+        XCTAssertEqual(HUDMetrics.lightDiameter * 3 + HUDMetrics.lightSpacing * 2,
+                       HUDMetrics.lightAreaLength - 12)
+        XCTAssertEqual(HUDMetrics.titleTextLength, HUDMetrics.titleLength - 12)
+    }
+
+    func testLayoutTransitionSavesBeforeResizeAndRestore() {
+        XCTAssertEqual(HUDLayoutTransitionPlanner.steps(from: .horizontal, to: .vertical), [
+            .save(.horizontal),
+            .resize(.vertical, CGSize(width: 40, height: 420)),
+            .restore(.vertical)
+        ])
+        XCTAssertEqual(HUDLayoutTransitionPlanner.steps(from: .vertical, to: .horizontal), [
+            .save(.vertical),
+            .resize(.horizontal, CGSize(width: 420, height: 40)),
+            .restore(.horizontal)
+        ])
+        XCTAssertTrue(HUDLayoutTransitionPlanner.steps(from: .vertical, to: .vertical).isEmpty)
+    }
+
     func testVerticalDefaultAtRightCenter() {
         XCTAssertEqual(HUDPositionGeometry.defaultFrame(for: .vertical, visible: visible), CGRect(x: 1248, y: 390, width: 40, height: 420))
     }
@@ -75,6 +97,21 @@ final class HUDPositionGeometryTests: XCTestCase {
         XCTAssertNotNil(defaults.data(forKey: HUDPositionStore.horizontalKey))
         store.save(record(x: 0.7), for: .horizontal)
         XCTAssertEqual(store.load(.horizontal)?.relativeX, 0.7)
+    }
+
+    func testCorruptedCurrentPositionIsDifferentFromMissingPosition() {
+        let name = "HUDPositionCorruptionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = HUDPositionStore(defaults: defaults)
+        XCTAssertEqual(store.loadResult(.vertical), .missing)
+        defaults.set(Data("broken".utf8), forKey: HUDPositionStore.verticalKey)
+        XCTAssertEqual(store.loadResult(.vertical), .corrupted)
+        defaults.removeObject(forKey: HUDPositionStore.verticalKey)
+        defaults.set("wrong type", forKey: HUDPositionStore.verticalKey)
+        XCTAssertEqual(store.loadResult(.vertical), .corrupted)
+        defaults.set(Data("broken legacy".utf8), forKey: HUDPositionStore.legacyKey)
+        XCTAssertEqual(store.loadResult(.horizontal), .corrupted)
     }
 
     func testMissingDisplayRequiresDefaultPosition() {

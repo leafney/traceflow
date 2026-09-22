@@ -13,49 +13,51 @@ struct HUDView: View {
             case .vertical: verticalContent
             }
         }
-        .frame(width: model.hudLayoutMode == .horizontal ? 420 : 40,
-               height: model.hudLayoutMode == .horizontal ? 40 : 420)
+        .frame(width: model.hudLayoutMode == .horizontal ? HUDMetrics.longAxis : HUDMetrics.shortAxis,
+               height: model.hudLayoutMode == .horizontal ? HUDMetrics.shortAxis : HUDMetrics.longAxis)
         .background(Color.black.opacity(colorScheme == .dark ? 0.18 : 0.06), in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(colorScheme == .dark ? 0.16 : 0.24), lineWidth: 0.5))
         .contentShape(Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
         .animation(.easeInOut(duration: 0.25), value: model.displayedSession?.id)
     }
 
     private var horizontalContent: some View {
         HStack(spacing: 0) {
-            icon.frame(width: 40, height: 40)
+            icon.frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
             horizontalSeparator
             ZStack {
                 title
-                    .frame(width: 263, alignment: .leading)
+                    .frame(width: HUDMetrics.titleTextLength, alignment: .leading)
                     .id(model.displayedSession?.id ?? "placeholder")
                     .transition(titleTransition(vertical: false))
             }
-            .frame(width: 275, height: 40)
+            .frame(width: HUDMetrics.titleLength, height: HUDMetrics.shortAxis)
             .clipped()
             horizontalSeparator
-            HStack(spacing: 4) { lights }
-                .frame(width: 104, height: 40)
+            HStack(spacing: HUDMetrics.lightSpacing) { lights }
+                .frame(width: HUDMetrics.lightAreaLength, height: HUDMetrics.shortAxis)
         }
     }
 
     private var verticalContent: some View {
         VStack(spacing: 0) {
-            icon.frame(width: 40, height: 40)
+            icon.frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength)
             verticalSeparator
             ZStack {
                 title
-                    .frame(width: 263, height: 20, alignment: .leading)
+                    .frame(width: HUDMetrics.titleTextLength, height: 20, alignment: .leading)
                     .rotationEffect(.degrees(90))
-                    .frame(width: 40, height: 275)
+                    .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
                     .id(model.displayedSession?.id ?? "placeholder")
                     .transition(titleTransition(vertical: true))
             }
-            .frame(width: 40, height: 275)
+            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
             .clipped()
             verticalSeparator
-            VStack(spacing: 4) { lights }
-                .frame(width: 40, height: 104)
+            VStack(spacing: HUDMetrics.lightSpacing) { lights }
+                .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.lightAreaLength)
         }
     }
 
@@ -69,6 +71,19 @@ struct HUDView: View {
             .font(.system(size: 13, weight: .medium, design: .rounded))
             .lineLimit(1)
             .truncationMode(.tail)
+    }
+
+    private var accessibilityDescription: String {
+        let title = model.displayedSession?.displayTitle ?? "Traceflow"
+        let state: String
+        switch model.displayedSession?.state {
+        case .attention: state = "需要处理"
+        case .running: state = "运行中"
+        case .completed: state = "已完成"
+        case .idle: state = "待机"
+        case nil: state = "没有参与显示的会话"
+        }
+        return "\(title)，\(state)"
     }
 
     @ViewBuilder private var lights: some View {
@@ -90,13 +105,13 @@ struct HUDView: View {
     }
 
     private var horizontalSeparator: some View {
-        Rectangle().fill(separatorColor).frame(width: 0.5, height: 22)
-            .frame(width: 0.5, height: 40)
+        Rectangle().fill(separatorColor).frame(width: HUDMetrics.separatorThickness, height: 22)
+            .frame(width: HUDMetrics.separatorThickness, height: HUDMetrics.shortAxis)
     }
 
     private var verticalSeparator: some View {
-        Rectangle().fill(separatorColor).frame(width: 22, height: 0.5)
-            .frame(width: 40, height: 0.5)
+        Rectangle().fill(separatorColor).frame(width: 22, height: HUDMetrics.separatorThickness)
+            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.separatorThickness)
     }
 }
 
@@ -124,38 +139,41 @@ private struct StatusLight: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active || reduceMotion)) { timeline in
             let phase = animationPhase(at: timeline.date)
             let intensity = activeOpacity(phase: phase)
-            let scale = reduceMotion ? 1.0 : 1.0 + phase * (glow == .strong ? 0.30 : 0.15)
+            let parameters = GlowParameters(mode: glow)
+            let scale = reduceMotion ? 1.0 : 1.0 + phase * (parameters.maximumScale - 1.0)
 
-            Circle()
-                .fill(kind.color.opacity(active ? intensity : 0.18))
-                .frame(width: 28, height: 28)
-                .background {
-                    if active {
-                        glowLayer(diameter: 52, peakOpacity: glow == .strong ? 0.45 : 0.28, intensity: intensity)
-                            .scaleEffect(scale)
-                        glowLayer(diameter: 40, peakOpacity: glow == .strong ? 0.70 : 0.50, intensity: intensity)
-                            .scaleEffect(scale)
-                    }
+            ZStack {
+                if active {
+                    glowLayer(diameter: 40, blurRadius: parameters.outerBlur,
+                              peakOpacity: parameters.outerOpacity, intensity: intensity)
+                        .scaleEffect(scale)
+                    glowLayer(diameter: 34, blurRadius: parameters.innerBlur,
+                              peakOpacity: parameters.innerOpacity, intensity: intensity)
+                        .scaleEffect(scale)
                 }
-                .shadow(color: active ? kind.color.opacity((glow == .strong ? 0.70 : 0.50) * intensity) : .clear,
-                        radius: active ? (glow == .strong ? 9 : 6) : 0)
+                Circle()
+                    .fill(kind.color.opacity(active ? intensity : 0.18))
+                    .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
+            }
+            .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
         }
         .accessibilityHidden(true)
     }
 
-    private func glowLayer(diameter: CGFloat, peakOpacity: Double, intensity: Double) -> some View {
+    private func glowLayer(diameter: CGFloat, blurRadius: CGFloat, peakOpacity: Double, intensity: Double) -> some View {
         Circle()
             .fill(RadialGradient(
                 stops: [
                     .init(color: kind.color.opacity(peakOpacity * intensity), location: 0),
-                    .init(color: kind.color.opacity(peakOpacity * intensity * 0.58), location: 0.32),
-                    .init(color: .clear, location: 0.62)
+                    .init(color: kind.color.opacity(peakOpacity * intensity * 0.58), location: 0.30),
+                    .init(color: .clear, location: 0.58)
                 ],
                 center: .center,
                 startRadius: 0,
                 endRadius: diameter / 2
             ))
             .frame(width: diameter, height: diameter)
+            .blur(radius: blurRadius)
     }
 
     private func animationPhase(at date: Date) -> Double {
@@ -184,6 +202,31 @@ private struct StatusLight: View {
         case .attention: return 0.35 + phase * 0.65
         case .running: return 0.65 + phase * 0.35
         case .completed: return 1
+        }
+    }
+}
+
+private struct GlowParameters {
+    let maximumScale: CGFloat
+    let innerBlur: CGFloat
+    let innerOpacity: Double
+    let outerBlur: CGFloat
+    let outerOpacity: Double
+
+    init(mode: HUDGlowMode) {
+        switch mode {
+        case .standard:
+            maximumScale = 1.15
+            innerBlur = 6
+            innerOpacity = 0.50
+            outerBlur = 12
+            outerOpacity = 0.28
+        case .strong:
+            maximumScale = 1.30
+            innerBlur = 9
+            innerOpacity = 0.70
+            outerBlur = 18
+            outerOpacity = 0.45
         }
     }
 }

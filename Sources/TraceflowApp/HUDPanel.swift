@@ -11,13 +11,17 @@ final class NonActivatingPanel: NSPanel {
 
 @MainActor
 final class HUDPanelController: NSWindowController, NSWindowDelegate {
-    private let defaults = UserDefaults.standard
-    private let positions = HUDPositionStore(defaults: .standard)
+    private let defaults: UserDefaults
+    private let positions: HUDPositionStore
+    private weak var model: AppModel?
     private var layout: HUDLayoutMode
     private var layoutObserver: AnyCancellable?
     private var isRestoringPosition = false
 
-    init(model: AppModel) {
+    init(model: AppModel, defaults: UserDefaults = .standard) {
+        self.model = model
+        self.defaults = defaults
+        positions = HUDPositionStore(defaults: defaults)
         layout = model.hudLayoutMode
         let size = HUDPositionGeometry.size(for: layout)
         let panel = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -59,14 +63,20 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private func switchLayout(to newLayout: HUDLayoutMode) {
         guard newLayout != layout, let window else { return }
         isRestoringPosition = true
-        savePosition()
-        layout = newLayout
-        let size = HUDPositionGeometry.size(for: newLayout)
-        window.setContentSize(size)
-        window.contentView?.frame = NSRect(origin: .zero, size: size)
-        window.contentView?.layer?.cornerRadius = min(size.width, size.height) / 2
-        isRestoringPosition = false
-        restorePosition()
+        for step in HUDLayoutTransitionPlanner.steps(from: layout, to: newLayout) {
+            switch step {
+            case .save:
+                savePosition()
+            case let .resize(targetLayout, size):
+                layout = targetLayout
+                window.setContentSize(size)
+                window.contentView?.frame = NSRect(origin: .zero, size: size)
+                window.contentView?.layer?.cornerRadius = min(size.width, size.height) / 2
+            case .restore:
+                isRestoringPosition = false
+                restorePosition()
+            }
+        }
     }
 
     private func restorePosition() {
@@ -76,13 +86,17 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             isRestoringPosition = false
             savePosition()
         }
-        if let position = positions.load(layout),
+        let positionResult = positions.loadResult(layout)
+        if case .corrupted = positionResult {
+            model?.logDiagnostic("error=hud_position_corrupted layout=\(layout.rawValue)")
+        }
+        if case let .loaded(position) = positionResult,
            let screen = screen(matching: position) {
             let frame = HUDPositionGeometry.restoredFrame(for: layout, relativeX: position.relativeX, relativeY: position.relativeY, visible: screen.visibleFrame)
             window.setFrame(frame, display: true)
             return
         }
-        if layout == .horizontal, positions.load(.horizontal) == nil, migrateLegacyFrame() { return }
+        if layout == .horizontal, case .missing = positionResult, migrateLegacyFrame() { return }
         if let screen = NSScreen.main ?? NSScreen.screens.first {
             window.setFrame(HUDPositionGeometry.defaultFrame(for: layout, visible: screen.visibleFrame), display: true)
         }

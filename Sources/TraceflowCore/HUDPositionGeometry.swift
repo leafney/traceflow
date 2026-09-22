@@ -1,6 +1,19 @@
 import CoreGraphics
 import Foundation
 
+public enum HUDMetrics {
+    public static let longAxis: CGFloat = 420
+    public static let shortAxis: CGFloat = 40
+    public static let iconLength: CGFloat = 40
+    public static let titleLength: CGFloat = 275
+    public static let titleTextLength: CGFloat = 263
+    public static let lightAreaLength: CGFloat = 104
+    public static let lightDiameter: CGFloat = 28
+    public static let lightSpacing: CGFloat = 4
+    public static let separatorThickness: CGFloat = 0.5
+    public static let edgeOffset: CGFloat = 12
+}
+
 public struct HUDPositionRecord: Codable, Equatable {
     public let version: Int
     public let displayUUID: String?
@@ -60,7 +73,9 @@ public enum HUDPositionGeometry {
     }
 
     public static func size(for layout: HUDLayoutMode) -> CGSize {
-        layout == .horizontal ? CGSize(width: 420, height: 40) : CGSize(width: 40, height: 420)
+        layout == .horizontal
+            ? CGSize(width: HUDMetrics.longAxis, height: HUDMetrics.shortAxis)
+            : CGSize(width: HUDMetrics.shortAxis, height: HUDMetrics.longAxis)
     }
 
     public static func defaultFrame(for layout: HUDLayoutMode, visible: CGRect) -> CGRect {
@@ -68,9 +83,9 @@ public enum HUDPositionGeometry {
         let origin: CGPoint
         switch layout {
         case .horizontal:
-            origin = CGPoint(x: visible.midX - size.width / 2, y: visible.maxY - size.height - 12)
+            origin = CGPoint(x: visible.midX - size.width / 2, y: visible.maxY - size.height - HUDMetrics.edgeOffset)
         case .vertical:
-            origin = CGPoint(x: visible.maxX - size.width - 12, y: visible.midY - size.height / 2)
+            origin = CGPoint(x: visible.maxX - size.width - HUDMetrics.edgeOffset, y: visible.midY - size.height / 2)
         }
         return clamped(CGRect(origin: origin, size: size), to: visible)
     }
@@ -107,6 +122,29 @@ public enum HUDPositionGeometry {
     }
 }
 
+public enum HUDLayoutTransitionStep: Equatable {
+    case save(HUDLayoutMode)
+    case resize(HUDLayoutMode, CGSize)
+    case restore(HUDLayoutMode)
+}
+
+public enum HUDLayoutTransitionPlanner {
+    public static func steps(from oldLayout: HUDLayoutMode, to newLayout: HUDLayoutMode) -> [HUDLayoutTransitionStep] {
+        guard oldLayout != newLayout else { return [] }
+        return [
+            .save(oldLayout),
+            .resize(newLayout, HUDPositionGeometry.size(for: newLayout)),
+            .restore(newLayout)
+        ]
+    }
+}
+
+public enum HUDPositionLoadResult: Equatable {
+    case missing
+    case loaded(HUDPositionRecord)
+    case corrupted
+}
+
 public final class HUDPositionStore {
     public static let horizontalKey = "hudPositionHorizontalV3"
     public static let verticalKey = "hudPositionVerticalV1"
@@ -116,15 +154,22 @@ public final class HUDPositionStore {
 
     public init(defaults: UserDefaults) { self.defaults = defaults }
 
-    public func load(_ layout: HUDLayoutMode) -> HUDPositionRecord? {
+    public func loadResult(_ layout: HUDLayoutMode) -> HUDPositionLoadResult {
         let key = Self.key(for: layout)
-        if let data = defaults.data(forKey: key) {
-            return try? JSONDecoder().decode(HUDPositionRecord.self, from: data)
+        if let storedValue = defaults.object(forKey: key) {
+            guard let data = storedValue as? Data else { return .corrupted }
+            guard let record = try? JSONDecoder().decode(HUDPositionRecord.self, from: data) else { return .corrupted }
+            return .loaded(record)
         }
-        guard layout == .horizontal,
-              let data = defaults.data(forKey: Self.legacyKey),
-              let record = try? JSONDecoder().decode(HUDPositionRecord.self, from: data) else { return nil }
+        guard layout == .horizontal, let legacyValue = defaults.object(forKey: Self.legacyKey) else { return .missing }
+        guard let data = legacyValue as? Data,
+              let record = try? JSONDecoder().decode(HUDPositionRecord.self, from: data) else { return .corrupted }
         save(record, for: .horizontal)
+        return .loaded(record)
+    }
+
+    public func load(_ layout: HUDLayoutMode) -> HUDPositionRecord? {
+        guard case let .loaded(record) = loadResult(layout) else { return nil }
         return record
     }
 

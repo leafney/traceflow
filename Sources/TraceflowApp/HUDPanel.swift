@@ -14,6 +14,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private let defaults: UserDefaults
     private let positions: HUDPositionStore
     private weak var model: AppModel?
+    private let hostingView: NSHostingView<HUDView>
     private var layout: HUDLayoutMode
     private var layoutObserver: AnyCancellable?
     private var isRestoringPosition = false
@@ -25,6 +26,8 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         layout = model.hudLayoutMode
         let size = HUDPositionGeometry.size(for: layout)
         let panel = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let content = Self.makeGlassContent(model: model, size: size)
+        hostingView = content.hostingView
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
@@ -32,13 +35,15 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         panel.hasShadow = true
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false
-        panel.contentView = Self.makeGlassContent(model: model, size: size)
+        panel.contentView = content.container
         super.init(window: panel)
         panel.delegate = self
         restorePosition()
         NotificationCenter.default.addObserver(self, selector: #selector(resetPosition), name: .traceflowResetHUDPosition, object: nil)
         layoutObserver = model.$hudLayoutMode.dropFirst().sink { [weak self] newLayout in
-            self?.switchLayout(to: newLayout)
+            // Published emits before the stored value changes. Defer so the
+            // replacement root view observes the new layout mode, not the old one.
+            DispatchQueue.main.async { self?.switchLayout(to: newLayout) }
         }
     }
 
@@ -61,7 +66,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     func ensureVisible() { restorePosition() }
 
     private func switchLayout(to newLayout: HUDLayoutMode) {
-        guard newLayout != layout, let window else { return }
+        guard newLayout != layout, let window, let model else { return }
         isRestoringPosition = true
         for step in HUDLayoutTransitionPlanner.steps(from: layout, to: newLayout) {
             switch step {
@@ -72,6 +77,15 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
                 window.setContentSize(size)
                 window.contentView?.frame = NSRect(origin: .zero, size: size)
                 window.contentView?.layer?.cornerRadius = min(size.width, size.height) / 2
+                // Recreate the root after the published layout value has settled.
+                // This prevents the first vertical frame from retaining horizontal
+                // layout measurements until an unrelated session update arrives.
+                hostingView.rootView = HUDView(model: model)
+                hostingView.frame = NSRect(origin: .zero, size: size)
+                hostingView.needsLayout = true
+                hostingView.layoutSubtreeIfNeeded()
+                hostingView.needsDisplay = true
+                hostingView.displayIfNeeded()
             case .restore:
                 isRestoringPosition = false
                 restorePosition()
@@ -165,7 +179,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         return screens[index]
     }
 
-    private static func makeGlassContent(model: AppModel, size: NSSize) -> NSView {
+    private static func makeGlassContent(model: AppModel, size: NSSize) -> (container: NSView, hostingView: NSHostingView<HUDView>) {
         let container = NSView(frame: NSRect(origin: .zero, size: size))
         container.wantsLayer = true
         container.layer?.cornerRadius = min(size.width, size.height) / 2
@@ -182,7 +196,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         hosting.frame = container.bounds
         hosting.autoresizingMask = [.width, .height]
         container.addSubview(hosting)
-        return container
+        return (container, hosting)
     }
 }
 

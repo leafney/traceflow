@@ -106,8 +106,11 @@ final class MixedTitleNSView: NSView {
         let line = line(text, font: font)
         let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         context.saveGState()
-        context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-        context.textPosition = CGPoint(x: align(centerX - width / 2, scale: scale), y: align(-(top + font.ascender), scale: scale))
+        useCoreTextCoordinates(in: context)
+        context.textPosition = CGPoint(
+            x: align(centerX - width / 2, scale: scale),
+            y: align(bounds.height - top - font.ascender, scale: scale)
+        )
         CTLineDraw(line, context)
         context.restoreGState()
     }
@@ -115,20 +118,30 @@ final class MixedTitleNSView: NSView {
     private func drawClockwise(_ text: String, centerX: CGFloat, top: CGFloat, font: NSFont, context: CGContext, scale: CGFloat) {
         let line = line(text, font: font)
         let glyphBounds = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-        let baseline = -font.ascender
         context.saveGState()
-        // In the flipped coordinate system, a +90° turn maps the line's original
-        // y coordinate to horizontal position. Offset by the real glyph midpoint
-        // so rotated Latin fragments remain centered in the 40-point title lane.
+        useCoreTextCoordinates(in: context)
+        // In Core Text's conventional coordinate system, a -90° rotation is a
+        // clockwise turn on screen. The glyph bounds' vertical midpoint becomes
+        // the horizontal offset, which keeps the visible ink—not just its
+        // typographic baseline—centered in the 40-point title lane.
         context.translateBy(
-            x: align(centerX + glyphBounds.midY + baseline, scale: scale),
-            y: align(top, scale: scale)
+            x: align(centerX - glyphBounds.midY, scale: scale),
+            y: align(bounds.height - top, scale: scale)
         )
-        context.rotate(by: .pi / 2)
-        context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-        context.textPosition = CGPoint(x: 0, y: align(baseline, scale: scale))
+        context.rotate(by: -.pi / 2)
+        context.textPosition = .zero
         CTLineDraw(line, context)
         context.restoreGState()
+    }
+
+    /// NSView is flipped (top-left origin), whereas Core Text positions glyphs
+    /// in the conventional bottom-left coordinate system. Establish that
+    /// coordinate system once per draw operation so both Han and Latin fragments
+    /// share the same, directly verifiable geometry.
+    private func useCoreTextCoordinates(in context: CGContext) {
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        context.textMatrix = .identity
     }
 
     private func line(_ text: String, font: NSFont) -> CTLine {

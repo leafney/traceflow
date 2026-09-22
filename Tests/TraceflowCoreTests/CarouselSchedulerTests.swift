@@ -45,7 +45,7 @@ final class CarouselSchedulerTests: XCTestCase {
 
     private func session(_ id: String, _ index: Int, state: SessionRuntimeState = .idle) -> SessionSnapshot {
         SessionSnapshot(
-            persisted: PersistedSession(sessionID: id, discoveredAt: base, lastUpdatedAt: base, rotationIndex: index),
+            persisted: PersistedSession(sessionID: id, isIncludedInHUD: true, discoveredAt: base, lastUpdatedAt: base, rotationIndex: index),
             state: state
         )
     }

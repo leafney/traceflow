@@ -7,6 +7,8 @@ import TraceflowCore
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var sessions: [SessionSnapshot] = []
+    @Published private(set) var sessionProjects: [SessionProjectGroup] = []
+    @Published private(set) var expandedProjectKeys: Set<String> = []
     @Published private(set) var displayedSession: SessionSnapshot?
     @Published private(set) var hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装 Traceflow Hooks")
     @Published var hooksActionMessage: String?
@@ -32,6 +34,7 @@ final class AppModel: ObservableObject {
         isHUDVisible = defaults.bool(forKey: "hudVisible")
         displayDuration = [3.0, 5.0, 10.0].contains(defaults.double(forKey: "displayDuration")) ? defaults.double(forKey: "displayDuration") : 5
         glowStrength = min(2, max(0, defaults.integer(forKey: "glowStrength")))
+        expandedProjectKeys = Set(defaults.stringArray(forKey: "expandedProjectKeys") ?? [])
         restoreSessions()
     }
 
@@ -82,13 +85,32 @@ final class AppModel: ObservableObject {
         refreshSessions(); persistSessions()
     }
 
+    func setProjectIncluded(_ included: Bool, projectKey: String) {
+        let sessionIDs = sessionProjects.first(where: { $0.id == projectKey })?.sessions.map(\.id) ?? []
+        guard !sessionIDs.isEmpty else { return }
+        for sessionID in sessionIDs {
+            guard var machine = machines[sessionID] else { continue }
+            machine.setIncludedInHUD(included)
+            machines[sessionID] = machine
+        }
+        refreshSessions()
+        persistSessions()
+    }
+
+    func setProjectExpanded(_ expanded: Bool, projectKey: String) {
+        if expanded { expandedProjectKeys.insert(projectKey) }
+        else { expandedProjectKeys.remove(projectKey) }
+        defaults.set(Array(expandedProjectKeys).sorted(), forKey: "expandedProjectKeys")
+    }
+
     func deleteSession(_ sessionID: String) {
         machines.removeValue(forKey: sessionID)
         refreshSessions(); persistSessions()
     }
 
     func clearSessions() {
-        machines.removeAll(); nextRotationIndex = 0
+        machines.removeAll(); nextRotationIndex = 0; expandedProjectKeys.removeAll()
+        defaults.removeObject(forKey: "expandedProjectKeys")
         refreshSessions(); persistSessions()
     }
 
@@ -208,6 +230,13 @@ final class AppModel: ObservableObject {
 
     private func refreshSessions() {
         sessions = machines.values.map(\.snapshot).sorted { $0.persisted.rotationIndex < $1.persisted.rotationIndex }
+        sessionProjects = SessionProjectGrouper.groups(from: sessions)
+        let validProjectKeys = Set(sessionProjects.map(\.id))
+        let retainedExpandedKeys = expandedProjectKeys.intersection(validProjectKeys)
+        if retainedExpandedKeys != expandedProjectKeys {
+            expandedProjectKeys = retainedExpandedKeys
+            defaults.set(Array(expandedProjectKeys).sorted(), forKey: "expandedProjectKeys")
+        }
         if let decision = scheduler.updateSessions(sessions, now: Date()) { updateDisplay(decision.sessionID) }
         else if let id = scheduler.currentSessionID { updateDisplay(id) }
     }
@@ -249,7 +278,7 @@ final class AppModel: ObservableObject {
         refreshSessions()
         persistSessions()
         isSyncingSessions = false
-        sessionSyncMessage = "同步完成：新增 \(result.addedCount) 个，更新 \(result.updatedCount) 个，共读取 \(threads.count) 个会话。"
+        sessionSyncMessage = "同步完成：新增 \(result.addedCount) 个，更新 \(result.updatedCount) 个，共读取 \(threads.count) 个会话。新会话默认关闭，请展开项目并选择需要参与 HUD 的会话。"
         logger.log("sessions=sync_success count=\(threads.count) added=\(result.addedCount)")
     }
 

@@ -12,6 +12,7 @@ final class VerticalTitleLayoutTests: XCTestCase {
     func testPreservesLatinConnectorsAndInternalDot() {
         XCTAssertEqual(VerticalTitleParser.segments(for: "usb-hub_Codex-5.3"), [.latin("usb-hub_Codex-5.3")])
         XCTAssertEqual(VerticalTitleParser.segments(for: "example.com"), [.latin("example.com")])
+        XCTAssertEqual(VerticalTitleParser.segments(for: "cafe\u{301}"), [.latin("cafe\u{301}")])
     }
 
     func testDropsChinesePunctuationWithoutGap() {

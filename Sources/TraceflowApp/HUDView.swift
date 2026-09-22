@@ -20,7 +20,6 @@ struct HUDView: View {
         .contentShape(Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
-        .animation(.easeInOut(duration: 0.25), value: model.displayedSession?.id)
     }
 
     private var horizontalContent: some View {
@@ -35,6 +34,7 @@ struct HUDView: View {
             }
             .frame(width: HUDMetrics.titleLength, height: HUDMetrics.shortAxis)
             .clipped()
+            .transaction { $0.animation = titleAnimation }
             horizontalSeparator
             HStack(spacing: HUDMetrics.lightSpacing) { lights }
                 .frame(width: HUDMetrics.lightAreaLength, height: HUDMetrics.shortAxis)
@@ -53,6 +53,7 @@ struct HUDView: View {
             }
             .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
             .clipped()
+            .transaction { $0.animation = titleAnimation }
             verticalSeparator
             VStack(spacing: HUDMetrics.lightSpacing) { lights }
                 .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.lightAreaLength)
@@ -91,11 +92,25 @@ struct HUDView: View {
     }
 
     private func titleTransition(vertical: Bool) -> AnyTransition {
-        if reduceMotion { return .opacity }
-        return .asymmetric(
-            insertion: .move(edge: vertical ? .leading : .bottom),
-            removal: .move(edge: vertical ? .trailing : .top)
-        )
+        switch HUDTitleTransition.style(shouldAnimate: model.shouldAnimateDisplayChange, reduceMotion: reduceMotion) {
+        case .none:
+            return .identity
+        case .fade:
+            return .opacity
+        case .slide:
+            return .asymmetric(
+                insertion: .move(edge: vertical ? .leading : .bottom),
+                removal: .move(edge: vertical ? .trailing : .top)
+            )
+        }
+    }
+
+    private var titleAnimation: Animation? {
+        switch HUDTitleTransition.style(shouldAnimate: model.shouldAnimateDisplayChange, reduceMotion: reduceMotion) {
+        case .none: nil
+        case .slide: .easeInOut(duration: 0.25)
+        case .fade: .easeInOut(duration: 0.15)
+        }
     }
 
     private var separatorColor: Color {

@@ -169,12 +169,14 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         let container = NSView(frame: NSRect(origin: .zero, size: size))
         container.wantsLayer = true
         container.layer?.cornerRadius = min(size.width, size.height) / 2
-        container.layer?.masksToBounds = true
         let effect = NSVisualEffectView(frame: container.bounds)
         effect.autoresizingMask = [.width, .height]
         effect.material = .hudWindow
         effect.blendingMode = .behindWindow
         effect.state = .active
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = min(size.width, size.height) / 2
+        effect.layer?.masksToBounds = true
         container.addSubview(effect)
         let hosting = NSHostingView(rootView: HUDView(model: model))
         hosting.frame = container.bounds

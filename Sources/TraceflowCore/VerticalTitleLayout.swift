@@ -101,7 +101,15 @@ public enum VerticalTitleParser {
 
     private static func isLatinBody(_ character: Character) -> Bool {
         guard !isHan(character) else { return false }
-        return character.unicodeScalars.allSatisfy { $0.properties.isAlphabetic || $0.properties.numericType != nil }
+        let scalars = character.unicodeScalars
+        guard scalars.contains(where: { $0.properties.isAlphabetic || $0.properties.numericType != nil }) else { return false }
+        return scalars.allSatisfy { scalar in
+            scalar.properties.isAlphabetic
+                || scalar.properties.numericType != nil
+                || scalar.properties.generalCategory == .nonspacingMark
+                || scalar.properties.generalCategory == .spacingMark
+                || scalar.properties.generalCategory == .enclosingMark
+        }
     }
 
     private static func isHan(_ character: Character) -> Bool {

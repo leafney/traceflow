@@ -19,6 +19,7 @@ final class MixedTitleNSView: NSView {
     var title: String {
         didSet {
             guard title != oldValue else { return }
+            setAccessibilityLabel(title)
             needsDisplay = true
         }
     }
@@ -113,15 +114,21 @@ final class MixedTitleNSView: NSView {
 
     private func drawClockwise(_ text: String, centerX: CGFloat, top: CGFloat, font: NSFont, context: CGContext, scale: CGFloat) {
         let line = line(text, font: font)
-        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        let glyphBounds = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+        let baseline = -font.ascender
         context.saveGState()
-        context.translateBy(x: align(centerX + font.ascender / 2, scale: scale), y: align(top, scale: scale))
+        // In the flipped coordinate system, a +90° turn maps the line's original
+        // y coordinate to horizontal position. Offset by the real glyph midpoint
+        // so rotated Latin fragments remain centered in the 40-point title lane.
+        context.translateBy(
+            x: align(centerX + glyphBounds.midY + baseline, scale: scale),
+            y: align(top, scale: scale)
+        )
         context.rotate(by: .pi / 2)
         context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-        context.textPosition = CGPoint(x: 0, y: align(-font.ascender, scale: scale))
+        context.textPosition = CGPoint(x: 0, y: align(baseline, scale: scale))
         CTLineDraw(line, context)
         context.restoreGState()
-        _ = width
     }
 
     private func line(_ text: String, font: NSFont) -> CTLine {

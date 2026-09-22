@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var sessionProjects: [SessionProjectGroup] = []
     @Published private(set) var expandedProjectKeys: Set<String> = []
     @Published private(set) var displayedSession: SessionSnapshot?
+    @Published private(set) var shouldAnimateDisplayChange = false
     @Published private(set) var hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装 Traceflow Hooks")
     @Published private(set) var localCommunicationHealth = LocalCommunicationHealth(state: .error, detail: "尚未启动本地通信")
     @Published var hooksActionMessage: String?
@@ -70,7 +71,7 @@ final class AppModel: ObservableObject {
 
     func tick(now: Date = Date()) {
         recheckCompletionTimeouts(now: now)
-        if let decision = scheduler.advance(now: now, displayDuration: displayDuration) { updateDisplay(decision.sessionID) }
+        if let decision = scheduler.advance(now: now, displayDuration: displayDuration) { applyDisplayDecision(decision) }
     }
 
     func recheckCompletionTimeouts(now: Date = Date()) {
@@ -302,7 +303,7 @@ final class AppModel: ObservableObject {
         persistSessions()
         defaults.set(Date(), forKey: "lastHookEvent")
         refreshHooksHealth()
-        if let decision = eventDecision ?? membershipDecision { updateDisplay(decision.sessionID) }
+        if let decision = eventDecision ?? membershipDecision { applyDisplayDecision(decision) }
         else if displayedSession?.id == id { updateDisplay(id) }
         logger.log("event=\(envelope.payload.eventName.rawValue) state=\(result.oldState.rawValue)->\(result.newState.rawValue)")
     }
@@ -321,7 +322,7 @@ final class AppModel: ObservableObject {
 
     private func refreshSessions() {
         publishSessions()
-        if let decision = scheduler.updateSessions(sessions, now: Date()) { updateDisplay(decision.sessionID) }
+        if let decision = scheduler.updateSessions(sessions, now: Date()) { applyDisplayDecision(decision) }
         else if let id = scheduler.currentSessionID { updateDisplay(id) }
     }
 
@@ -336,7 +337,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func updateDisplay(_ id: String?) { displayedSession = id.flatMap { machines[$0]?.snapshot } }
+    private func applyDisplayDecision(_ decision: CarouselDecision) {
+        shouldAnimateDisplayChange = decision.animated
+        displayedSession = decision.sessionID.flatMap { machines[$0]?.snapshot }
+    }
+
+    private func updateDisplay(_ id: String?) {
+        shouldAnimateDisplayChange = false
+        displayedSession = id.flatMap { machines[$0]?.snapshot }
+    }
 
     private func restoreSessions() {
         do {

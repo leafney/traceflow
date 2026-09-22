@@ -80,6 +80,11 @@ public struct SessionStateMachine: Sendable {
         snapshot.persisted.isIncludedInHUD = included
     }
 
+    public mutating func updatePersistedMetadata(_ persisted: PersistedSession) {
+        precondition(persisted.sessionID == snapshot.persisted.sessionID)
+        snapshot.persisted = persisted
+    }
+
     private func rejected(_ rejection: EventApplyRejection, oldState: SessionRuntimeState) -> EventApplyResult {
         EventApplyResult(
             accepted: false,

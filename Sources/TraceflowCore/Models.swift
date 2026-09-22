@@ -87,6 +87,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
     public var agentType: String
     public var projectPath: String?
     public var projectName: String?
+    public var codexThreadName: String?
     public var isIncludedInHUD: Bool
     public let discoveredAt: Date
     public var lastUpdatedAt: Date
@@ -97,6 +98,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
         agentType: String = "codex",
         projectPath: String? = nil,
         projectName: String? = nil,
+        codexThreadName: String? = nil,
         isIncludedInHUD: Bool = true,
         discoveredAt: Date,
         lastUpdatedAt: Date,
@@ -106,6 +108,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
         self.agentType = agentType
         self.projectPath = projectPath
         self.projectName = projectName
+        self.codexThreadName = codexThreadName
         self.isIncludedInHUD = isIncludedInHUD
         self.discoveredAt = discoveredAt
         self.lastUpdatedAt = lastUpdatedAt
@@ -138,7 +141,7 @@ public struct SessionSnapshot: Sendable, Equatable, Identifiable {
     public var displayTitle: String {
         TitleBuilder.displayTitle(
             projectName: persisted.projectName,
-            conversationSummary: conversationSummary
+            conversationSummary: conversationSummary ?? persisted.codexThreadName
         )
     }
 }

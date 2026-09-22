@@ -16,16 +16,12 @@ public struct HooksInstaller {
 
     public func installOrRepair() throws {
         guard FileManager.default.fileExists(atPath: sourceNotifierURL.path) else { throw HooksInstallerError.missingNotifier }
-        try FileManager.default.createDirectory(at: installedNotifierURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        if FileManager.default.fileExists(atPath: installedNotifierURL.path) { try FileManager.default.removeItem(at: installedNotifierURL) }
-        try FileManager.default.copyItem(at: sourceNotifierURL, to: installedNotifierURL)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedNotifierURL.path)
         var root = try readRoot()
         var hooks = root["hooks"] as? [String: Any] ?? [:]
         for event in Self.events {
             var groups = hooks[event] as? [[String: Any]] ?? []
             groups = removingTraceflowHandlers(from: groups)
-            var handler: [String: Any] = ["type": "command", "command": installedNotifierURL.path, "timeout": 3]
+            var handler: [String: Any] = ["type": "command", "command": Self.shellQuote(installedNotifierURL.path), "timeout": 3]
             if !["Stop", "SessionEnd"].contains(event) { handler["async"] = true }
             var group: [String: Any] = ["hooks": [handler]]
             if event == "SessionStart" { group["matcher"] = "startup|resume|clear" }
@@ -33,7 +29,16 @@ public struct HooksInstaller {
             hooks[event] = groups
         }
         root["hooks"] = hooks
+        try FileManager.default.createDirectory(at: installedNotifierURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let staged = installedNotifierURL.deletingLastPathComponent().appendingPathComponent(".traceflow-notify-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: sourceNotifierURL, to: staged)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staged.path)
         try backupAndWrite(root)
+        if FileManager.default.fileExists(atPath: installedNotifierURL.path) {
+            _ = try FileManager.default.replaceItemAt(installedNotifierURL, withItemAt: staged)
+        } else {
+            try FileManager.default.moveItem(at: staged, to: installedNotifierURL)
+        }
     }
 
     public func remove() throws {
@@ -53,7 +58,7 @@ public struct HooksInstaller {
         guard FileManager.default.isExecutableFile(atPath: installedNotifierURL.path), let root = try? readRoot(), let hooks = root["hooks"] as? [String: Any] else { return false }
         return Self.events.allSatisfy { event in
             (hooks[event] as? [[String: Any]] ?? []).contains { group in
-                (group["hooks"] as? [[String: Any]] ?? []).contains { ($0["command"] as? String) == installedNotifierURL.path }
+                (group["hooks"] as? [[String: Any]] ?? []).contains { ($0["command"] as? String) == Self.shellQuote(installedNotifierURL.path) }
             }
         }
     }
@@ -68,11 +73,19 @@ public struct HooksInstaller {
     private func removingTraceflowHandlers(from groups: [[String: Any]]) -> [[String: Any]] {
         groups.compactMap { group in
             var copy = group
-            let filtered = (group["hooks"] as? [[String: Any]] ?? []).filter { ($0["command"] as? String) != installedNotifierURL.path }
+            let filtered = (group["hooks"] as? [[String: Any]] ?? []).filter { !isTraceflowCommand($0["command"] as? String) }
             guard !filtered.isEmpty else { return nil }
             copy["hooks"] = filtered
             return copy
         }
+    }
+
+    private func isTraceflowCommand(_ command: String?) -> Bool {
+        command == installedNotifierURL.path || command == Self.shellQuote(installedNotifierURL.path)
+    }
+
+    public static func shellQuote(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func backupAndWrite(_ root: [String: Any]) throws {

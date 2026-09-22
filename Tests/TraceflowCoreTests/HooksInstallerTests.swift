@@ -18,7 +18,7 @@ final class HooksInstallerTests: XCTestCase {
         XCTAssertEqual(rootObject["description"] as? String, "keep")
         let groups = (rootObject["hooks"] as! [String: Any])["Stop"] as! [[String: Any]]
         let commands = groups.flatMap { $0["hooks"] as? [[String: Any]] ?? [] }.compactMap { $0["command"] as? String }
-        XCTAssertEqual(commands.filter { $0 == installed.path }.count, 1)
+        XCTAssertEqual(commands.filter { $0 == HooksInstaller.shellQuote(installed.path) }.count, 1)
         XCTAssertTrue(commands.contains("other"))
         try installer.remove()
         let after = try JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as! [String: Any]
@@ -35,6 +35,45 @@ final class HooksInstallerTests: XCTestCase {
         let installer = HooksInstaller(hooksURL: hooks, installedNotifierURL: root.appendingPathComponent("installed"), sourceNotifierURL: source)
         XCTAssertThrowsError(try installer.installOrRepair())
         XCTAssertEqual(try String(contentsOf: hooks), "bad")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("installed").path))
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testRepairReplacesLegacyUnquotedCommandWithoutDuplicates() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let destination = root.appendingPathComponent("Application Support/Traceflow/bin/traceflow-notify")
+        let hooks = root.appendingPathComponent("hooks.json")
+        let initial: [String: Any] = ["hooks": ["Stop": [["hooks": [["type": "command", "command": destination.path], ["type": "command", "command": "other"]]]]]]
+        try JSONSerialization.data(withJSONObject: initial).write(to: hooks)
+        let source = root.appendingPathComponent("source"); try Data("binary".utf8).write(to: source)
+        let installer = HooksInstaller(hooksURL: hooks, installedNotifierURL: destination, sourceNotifierURL: source)
+        XCTAssertFalse(installer.isInstalled())
+        try installer.installOrRepair()
+        XCTAssertTrue(installer.isInstalled())
+        let output = try JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as! [String: Any]
+        let stop = ((output["hooks"] as! [String: Any])["Stop"] as! [[String: Any]])
+        let commands = stop.flatMap { $0["hooks"] as? [[String: Any]] ?? [] }.compactMap { $0["command"] as? String }
+        XCTAssertEqual(commands.filter { $0 == HooksInstaller.shellQuote(destination.path) }.count, 1)
+        XCTAssertFalse(commands.contains(destination.path))
+        XCTAssertTrue(commands.contains("other"))
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testQuotedCommandExecutesAtPathContainingSpaces() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let bin = root.appendingPathComponent("Application Support/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let notifier = bin.appendingPathComponent("traceflow-notify")
+        try Data("#!/bin/sh\nprintf 'ok\\n'\n".utf8).write(to: notifier)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: notifier.path)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", HooksInstaller.shellQuote(notifier.path)]
+        let output = Pipe(); process.standardOutput = output
+        try process.run(); process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8), "ok\n")
         try? FileManager.default.removeItem(at: root)
     }
 }

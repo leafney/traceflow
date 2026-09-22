@@ -769,3 +769,17 @@ MVP 只有同时满足以下全部条件才算完成：
 - Unix Domain Socket 是本机 IPC，不应在文案中误称为“加密传输”。
 - MVP 重点是验证可行性和用户体验，不追求分发完整度。
 - PRD 获得用户明确批准前不得开始实施。实施时必须先完整阅读本文件，并按阶段在重大文件变更后等待用户确认。
+
+## 18. 已批准的故障修复补充（2026-09-22）
+
+本节记录 MVP 实机验收后用户批准的修复，优先级高于前文冲突内容。
+
+1. `hooks.json` 中的转发器命令必须使用可靠的 shell 单引号转义，确保 `Application Support` 等含空格路径不会被拆分。安装器必须识别并替换旧的无引号命令。
+2. 安装或修复转发器时先生成临时文件；只有 Hooks 配置成功写入后才原子替换正式转发器，避免非法配置导致已有程序先被破坏。
+3. 设置页增加“测试转发通道”。它直接调用已安装转发器并发送不含用户内容的内部测试事件，验证 `转发器 → Unix Socket → App`；测试事件不得进入会话列表或会话存储。
+4. 主动测试不能获知 Codex `/hooks` 的信任状态。界面必须明确说明“转发通道正常”不等于“Codex 已信任”，信任结果仍以 Codex `/hooks` 页面为准。
+5. 设置页增加“同步 Codex 会话”。实现必须通过官方 `codex app-server` 的 JSON-RPC stdio 协议，依次执行 `initialize`、`initialized` 和分页 `thread/list`。
+6. 同步只读取会话摘要字段 `id`、`name`、`cwd`、`createdAt` 和 `updatedAt`；不得读取或保存 `preview`、`turns`、transcript、提示词及工具内容。
+7. 同步到的会话初始状态统一为待机。已有会话按 ID 合并，保留用户的“参与 HUD”勾选和当前内存运行状态；新会话默认勾选。
+8. 标题优先使用当前 Hook 在内存生成的摘要，其次使用 App Server 返回的官方会话名称，最后降级到项目目录名。官方名称允许持久化，且按既有摘要清理与长度规则处理。
+9. Traceflow 应用包位于 `/Applications/Traceflow.app` 是正式安装形态；用户级配置、会话数据、日志、Socket 和转发器仍分别保存在 `~/.codex`、`~/Library/Application Support/Traceflow` 和 `~/Library/Logs/Traceflow`。不得把可变运行数据写入只读、签名保护的 App 包。

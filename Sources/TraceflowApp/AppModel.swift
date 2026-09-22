@@ -10,6 +10,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var displayedSession: SessionSnapshot?
     @Published private(set) var hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装 Traceflow Hooks")
     @Published var hooksActionMessage: String?
+    @Published private(set) var isVerifyingHooks = false
+    @Published private(set) var isSyncingSessions = false
+    @Published var sessionSyncMessage: String?
     @Published var isHUDVisible: Bool { didSet { defaults.set(isHUDVisible, forKey: "hudVisible") } }
     @Published var displayDuration: Double { didSet { defaults.set(displayDuration, forKey: "displayDuration") } }
     @Published var glowStrength: Int { didSet { defaults.set(glowStrength, forKey: "glowStrength") } }
@@ -22,6 +25,7 @@ final class AppModel: ObservableObject {
     private var server: UnixSocketServer?
     private var nextRotationIndex = 0
     private var settingsController: NSWindowController?
+    private var pendingHealthCheckID: String?
 
     init() {
         defaults.register(defaults: ["hudVisible": true, "displayDuration": 5.0, "glowStrength": 1])
@@ -98,7 +102,7 @@ final class AppModel: ObservableObject {
     func resetHUDPosition() { NotificationCenter.default.post(name: .traceflowResetHUDPosition, object: nil) }
 
     func installHooks() {
-        do { try makeHooksInstaller().installOrRepair(); hooksActionMessage = "安装完成。请在 Codex 中执行 /hooks 并信任，然后发送一条消息。"; refreshHooksHealth() }
+        do { try makeHooksInstaller().installOrRepair(); defaults.removeObject(forKey: "lastHookEvent"); hooksActionMessage = "安装完成。请在 Codex 中重新执行 /hooks 并信任新定义，然后点击“测试转发通道”。"; refreshHooksHealth() }
         catch { hooksHealth = HooksHealth(state: .error, detail: error.localizedDescription); hooksActionMessage = error.localizedDescription }
     }
 
@@ -107,8 +111,76 @@ final class AppModel: ObservableObject {
         catch { hooksHealth = HooksHealth(state: .error, detail: error.localizedDescription); hooksActionMessage = error.localizedDescription }
     }
 
+    func verifyHooksConnection() {
+        guard !isVerifyingHooks else { return }
+        let installer = makeHooksInstaller()
+        guard installer.isInstalled() else {
+            hooksHealth = HooksHealth(state: .notInstalled, detail: "请先安装或修复 Traceflow Hooks")
+            hooksActionMessage = "未找到完整且可执行的 Traceflow Hooks。"
+            return
+        }
+
+        let checkID = "__traceflow_health_check__:\(UUID().uuidString)"
+        pendingHealthCheckID = checkID
+        isVerifyingHooks = true
+        hooksActionMessage = "正在测试转发器、本地通信和应用接收链路……"
+        let command = HooksInstaller.shellQuote(installer.installedNotifierURL.path)
+        Task.detached { [weak self] in
+            do {
+                let payload = HookPayload(sessionID: checkID, eventName: .sessionStart, source: "traceflow-health-check")
+                let data = try JSONEncoder().encode(payload)
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/sh")
+                process.arguments = ["-c", command]
+                let input = Pipe()
+                let output = Pipe()
+                process.standardInput = input
+                process.standardOutput = output
+                process.standardError = FileHandle.nullDevice
+                try process.run()
+                try input.fileHandleForWriting.write(contentsOf: data)
+                try input.fileHandleForWriting.close()
+                process.waitUntilExit()
+                if process.terminationStatus != 0 {
+                    await self?.finishHealthCheckFailure(checkID: checkID, message: "转发器执行失败")
+                }
+            } catch {
+                await self?.finishHealthCheckFailure(checkID: checkID, message: error.localizedDescription)
+            }
+        }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            self?.finishHealthCheckFailure(checkID: checkID, message: "5 秒内未收到测试事件")
+        }
+    }
+
+    func syncCodexSessions() {
+        guard !isSyncingSessions else { return }
+        isSyncingSessions = true
+        sessionSyncMessage = "正在从 Codex 读取会话摘要……"
+        Task.detached { [weak self] in
+            do {
+                let threads = try CodexAppServerClient().listThreads()
+                await self?.mergeCodexThreads(threads)
+            } catch {
+                await self?.finishSessionSyncFailure(error.localizedDescription)
+            }
+        }
+    }
+
     private func apply(_ envelope: HookEnvelope) {
         let id = envelope.payload.sessionID
+        if id.hasPrefix("__traceflow_health_check__:") {
+            if id == pendingHealthCheckID, envelope.payload.source == "traceflow-health-check" {
+                pendingHealthCheckID = nil
+                isVerifyingHooks = false
+                defaults.set(Date(), forKey: "lastHookEvent")
+                refreshHooksHealth()
+                hooksActionMessage = "转发通道正常。注意：Codex 是否信任仍以 /hooks 页面为准。"
+                logger.log("hooks=health_check_success")
+            }
+            return
+        }
         var machine = machines[id] ?? makeMachine(for: envelope)
         let result = machine.apply(envelope, now: Date())
         guard result.accepted else { logger.log("event=discarded reason=\(String(describing: result.rejection))"); return }
@@ -150,10 +222,51 @@ final class AppModel: ObservableObject {
         catch { logger.log("error=session_store_write") }
     }
 
+    private func mergeCodexThreads(_ threads: [CodexThreadSummary]) {
+        let result = CodexThreadImporter.merge(
+            threads,
+            into: machines.values.map(\.snapshot.persisted),
+            nextRotationIndex: nextRotationIndex
+        )
+        var mergedMachines: [String: SessionStateMachine] = [:]
+        for persisted in result.sessions {
+            if var machine = machines[persisted.sessionID] {
+                machine.updatePersistedMetadata(persisted)
+                mergedMachines[persisted.sessionID] = machine
+            } else {
+                mergedMachines[persisted.sessionID] = SessionStateMachine(
+                    snapshot: SessionSnapshot(persisted: persisted, state: .idle)
+                )
+            }
+        }
+        machines = mergedMachines
+        nextRotationIndex = result.nextRotationIndex
+        refreshSessions()
+        persistSessions()
+        isSyncingSessions = false
+        sessionSyncMessage = "同步完成：新增 \(result.addedCount) 个，更新 \(result.updatedCount) 个，共读取 \(threads.count) 个会话。"
+        logger.log("sessions=sync_success count=\(threads.count) added=\(result.addedCount)")
+    }
+
+    private func finishSessionSyncFailure(_ message: String) {
+        isSyncingSessions = false
+        sessionSyncMessage = "同步失败：\(message)"
+        logger.log("sessions=sync_failed")
+    }
+
+    private func finishHealthCheckFailure(checkID: String, message: String) {
+        guard pendingHealthCheckID == checkID else { return }
+        pendingHealthCheckID = nil
+        isVerifyingHooks = false
+        hooksHealth = HooksHealth(state: .error, detail: "转发通道测试失败")
+        hooksActionMessage = "\(message)。请先修复 Hooks，再在 Codex 中执行 /hooks 并信任。"
+        logger.log("hooks=health_check_failed")
+    }
+
     private func refreshHooksHealth() {
         if !makeHooksInstaller().isInstalled() { hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装完整 Traceflow Hooks") }
         else if let last = defaults.object(forKey: "lastHookEvent") as? Date { hooksHealth = HooksHealth(state: .healthy, detail: "最近事件：\(last.formatted(date: .abbreviated, time: .shortened))") }
-        else { hooksHealth = HooksHealth(state: .pendingVerification, detail: "请在 Codex 中执行 /hooks 并发送消息") }
+        else { hooksHealth = HooksHealth(state: .pendingVerification, detail: "请在 /hooks 信任后测试转发通道") }
     }
 
     private func makeHooksInstaller() -> HooksInstaller {

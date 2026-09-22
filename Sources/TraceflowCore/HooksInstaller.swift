@@ -8,10 +8,18 @@ public enum HooksInstallerError: LocalizedError {
     }
 }
 
+public enum HooksConfigurationState: Sendable, Equatable {
+    case missing
+    case corrupted
+    case incomplete
+    case complete
+}
+
 public struct HooksInspection: Sendable, Equatable {
-    public let hasTraceflowConfiguration: Bool
+    public let state: HooksConfigurationState
     public let issues: [String]
-    public var isComplete: Bool { hasTraceflowConfiguration && issues.isEmpty }
+    public var hasTraceflowConfiguration: Bool { state == .incomplete || state == .complete }
+    public var isComplete: Bool { state == .complete }
     public var summary: String { issues.first ?? "配置完整" }
 }
 
@@ -66,9 +74,17 @@ public struct HooksInstaller {
     }
 
     public func inspect() -> HooksInspection {
-        guard let root = try? readRoot(), let hooks = root["hooks"] as? [String: Any] else {
-            return HooksInspection(hasTraceflowConfiguration: false, issues: ["Hooks 配置无法读取"])
+        guard FileManager.default.fileExists(atPath: hooksURL.path) else {
+            let state: HooksConfigurationState = FileManager.default.fileExists(atPath: installedNotifierURL.path) ? .incomplete : .missing
+            return HooksInspection(state: state, issues: state == .missing ? ["尚未安装 Traceflow Hooks"] : ["Hooks 配置缺失"])
         }
+        let root: [String: Any]
+        do {
+            root = try readRoot()
+        } catch {
+            return HooksInspection(state: .corrupted, issues: ["hooks.json 已损坏或无法读取"])
+        }
+        let hooks = root["hooks"] as? [String: Any] ?? [:]
         let expectedCommand = Self.shellQuote(installedNotifierURL.path)
         let hasConfiguration = hooks.values.contains { value in
             (value as? [[String: Any]] ?? []).contains { group in
@@ -95,7 +111,10 @@ public struct HooksInstaller {
             }
             if matchingGroup == nil { issues.append("\(event) 定义缺失或不完整") }
         }
-        return HooksInspection(hasTraceflowConfiguration: hasConfiguration, issues: issues)
+        if !hasConfiguration {
+            return HooksInspection(state: FileManager.default.fileExists(atPath: installedNotifierURL.path) ? .incomplete : .missing, issues: ["Traceflow Hooks 定义缺失"])
+        }
+        return HooksInspection(state: issues.isEmpty ? .complete : .incomplete, issues: issues)
     }
 
     private func number(_ value: Any?) -> Int? {

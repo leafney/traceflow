@@ -149,6 +149,7 @@ final class AppModel: ObservableObject {
         do {
             try sessionStore.retrySave(sessions.map(\.persisted))
             sessionDataHealth = sessionStore.health
+            sessionSyncMessage = "会话数据保存成功。"
         } catch {
             sessionDataHealth = sessionStore.health
             sessionSyncMessage = "保存失败：\(error.localizedDescription)"
@@ -180,20 +181,36 @@ final class AppModel: ObservableObject {
 
     func installHooks() {
         do { try makeHooksInstaller().installOrRepair(); defaults.removeObject(forKey: "lastHookEvent"); hooksActionMessage = "安装完成。请在 Codex 中重新执行 /hooks 并信任新定义，然后点击“测试转发通道”。"; refreshHooksHealth() }
-        catch { hooksHealth = HooksHealth(state: .error, detail: error.localizedDescription); hooksActionMessage = error.localizedDescription }
+        catch {
+            hooksActionMessage = error.localizedDescription
+            refreshHooksHealth()
+            if hooksHealth.state == .notInstalled { hooksHealth = HooksHealth(state: .error, detail: error.localizedDescription) }
+        }
     }
 
     func removeHooks() {
         do { try makeHooksInstaller().remove(); defaults.removeObject(forKey: "lastHookEvent"); hooksActionMessage = "Traceflow Hooks 已移除。"; refreshHooksHealth() }
-        catch { hooksHealth = HooksHealth(state: .error, detail: error.localizedDescription); hooksActionMessage = error.localizedDescription }
+        catch {
+            hooksActionMessage = error.localizedDescription
+            refreshHooksHealth()
+            if hooksHealth.state == .notInstalled { hooksHealth = HooksHealth(state: .error, detail: error.localizedDescription) }
+        }
     }
 
     func verifyHooksConnection() {
         guard !isVerifyingHooks else { return }
         let installer = makeHooksInstaller()
-        guard installer.isInstalled() else {
-            hooksHealth = HooksHealth(state: .notInstalled, detail: "请先安装或修复 Traceflow Hooks")
-            hooksActionMessage = "未找到完整且可执行的 Traceflow Hooks。"
+        let inspection = installer.inspect()
+        guard inspection.isComplete else {
+            switch inspection.state {
+            case .missing:
+                hooksHealth = HooksHealth(state: .notInstalled, detail: inspection.summary)
+            case .corrupted, .incomplete:
+                hooksHealth = HooksHealth(state: .needsRepair, detail: inspection.summary)
+            case .complete:
+                break
+            }
+            hooksActionMessage = "Traceflow Hooks 缺失、损坏或定义不完整，请先安装或修复。"
             return
         }
 
@@ -211,14 +228,17 @@ final class AppModel: ObservableObject {
                 process.executableURL = URL(fileURLWithPath: "/bin/sh")
                 process.arguments = ["-c", command]
                 let input = Pipe()
-                let output = Pipe()
                 process.standardInput = input
-                process.standardOutput = output
+                process.standardOutput = FileHandle.nullDevice
                 process.standardError = FileHandle.nullDevice
                 try process.run()
                 try input.fileHandleForWriting.write(contentsOf: data)
                 try input.fileHandleForWriting.close()
-                process.waitUntilExit()
+                guard ProcessLifecycle.waitForExit(process, timeout: 5) else {
+                    ProcessLifecycle.terminate(process)
+                    await self?.finishHealthCheckFailure(checkID: checkID, message: "转发器执行超时")
+                    return
+                }
                 if process.terminationStatus != 0 {
                     await self?.finishHealthCheckFailure(checkID: checkID, message: "转发器执行失败")
                 }
@@ -267,6 +287,7 @@ final class AppModel: ObservableObject {
         var machine = machines[id] ?? makeMachine(for: envelope)
         let result = machine.apply(envelope, now: Date())
         guard result.accepted else { logger.log("event=discarded reason=\(String(describing: result.rejection))"); return }
+        localCommunicationHealth = LocalCommunicationHealth(state: .healthy, detail: "最近成功收到 Hook 事件")
         machines[id] = machine
         publishSessions()
         let membershipDecision = scheduler.updateSessions(sessions, now: Date(), updateExistingStates: false)
@@ -322,14 +343,17 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func persistSessions() {
-        guard sessionDataHealth.allowsSaving else { return }
+    @discardableResult
+    private func persistSessions() -> Bool {
+        guard sessionDataHealth.allowsSaving else { return false }
         do {
             try sessionStore.save(sessions.map(\.persisted))
             sessionDataHealth = sessionStore.health
+            return true
         } catch {
             sessionDataHealth = sessionStore.health
             logger.log("error=session_store_write")
+            return false
         }
     }
 
@@ -353,10 +377,19 @@ final class AppModel: ObservableObject {
         machines = mergedMachines
         nextRotationIndex = result.nextRotationIndex
         refreshSessions()
-        persistSessions()
+        let saved = persistSessions()
         isSyncingSessions = false
-        sessionSyncMessage = "同步完成：新增 \(result.addedCount) 个，更新 \(result.updatedCount) 个，共读取 \(threads.count) 个会话。新会话默认关闭，请展开项目并选择需要参与 HUD 的会话。"
-        logger.log("sessions=sync_success count=\(threads.count) added=\(result.addedCount)")
+        sessionSyncMessage = SessionSyncReport.message(
+            readCount: threads.count,
+            addedCount: result.addedCount,
+            updatedCount: result.updatedCount,
+            saved: saved
+        )
+        if saved {
+            logger.log("sessions=sync_success count=\(threads.count) added=\(result.addedCount)")
+        } else {
+            logger.log("sessions=sync_persist_failed count=\(threads.count)")
+        }
     }
 
     private func finishSessionSyncFailure(_ message: String) {
@@ -376,10 +409,18 @@ final class AppModel: ObservableObject {
 
     private func refreshHooksHealth() {
         let inspection = makeHooksInstaller().inspect()
-        if !inspection.hasTraceflowConfiguration { hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装 Traceflow Hooks") }
-        else if !inspection.isComplete { hooksHealth = HooksHealth(state: .needsRepair, detail: inspection.summary) }
-        else if let last = defaults.object(forKey: "lastHookEvent") as? Date { hooksHealth = HooksHealth(state: .healthy, detail: "最近事件：\(last.formatted(date: .abbreviated, time: .shortened))") }
-        else { hooksHealth = HooksHealth(state: .pendingVerification, detail: "请在 /hooks 信任后测试转发通道") }
+        switch inspection.state {
+        case .missing:
+            hooksHealth = HooksHealth(state: .notInstalled, detail: inspection.summary)
+        case .corrupted, .incomplete:
+            hooksHealth = HooksHealth(state: .needsRepair, detail: inspection.summary)
+        case .complete:
+            if let last = defaults.object(forKey: "lastHookEvent") as? Date {
+                hooksHealth = HooksHealth(state: .healthy, detail: "最近事件：\(last.formatted(date: .abbreviated, time: .shortened))")
+            } else {
+                hooksHealth = HooksHealth(state: .pendingVerification, detail: "请在 /hooks 信任后测试转发通道")
+            }
+        }
     }
 
     private func makeHooksInstaller() -> HooksInstaller {

@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import SwiftUI
 
 final class NonActivatingPanel: NSPanel {
@@ -8,9 +9,18 @@ final class NonActivatingPanel: NSPanel {
 
 private struct HUDPosition: Codable {
     let version: Int
-    let displayID: UInt32
+    let displayUUID: String?
+    let legacyDisplayID: UInt32?
+    let displayName: String?
+    let pixelWidth: Int?
+    let pixelHeight: Int?
     let relativeX: Double
     let relativeY: Double
+
+    enum CodingKeys: String, CodingKey {
+        case version, displayUUID, displayName, pixelWidth, pixelHeight, relativeX, relativeY
+        case legacyDisplayID = "displayID"
+    }
 }
 
 @MainActor
@@ -53,7 +63,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         defer { isRestoringPosition = false }
         if let data = defaults.data(forKey: "hudPositionV2"),
            let position = try? JSONDecoder().decode(HUDPosition.self, from: data),
-           let screen = NSScreen.screens.first(where: { displayID(for: $0) == position.displayID }) {
+           let screen = screen(matching: position) {
             let visible = screen.visibleFrame
             let rangeX = max(0, visible.width - Self.size.width)
             let rangeY = max(0, visible.height - Self.size.height)
@@ -86,13 +96,18 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func savePosition() {
-        guard let frame = window?.frame, let screen = bestScreen(for: frame), let displayID = displayID(for: screen) else { return }
+        guard let frame = window?.frame, let screen = bestScreen(for: frame) else { return }
         let visible = screen.visibleFrame
+        let pixels = pixelSize(of: screen)
         let rangeX = max(1, visible.width - frame.width)
         let rangeY = max(1, visible.height - frame.height)
         let position = HUDPosition(
-            version: 2,
-            displayID: displayID,
+            version: 3,
+            displayUUID: displayUUID(for: screen),
+            legacyDisplayID: displayID(for: screen),
+            displayName: screen.localizedName,
+            pixelWidth: pixels.width,
+            pixelHeight: pixels.height,
             relativeX: min(1, max(0, (frame.minX - visible.minX) / rangeX)),
             relativeY: min(1, max(0, (frame.minY - visible.minY) / rangeY))
         )
@@ -117,6 +132,36 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
 
     private func displayID(for screen: NSScreen) -> UInt32? {
         (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    }
+
+    private func displayUUID(for screen: NSScreen) -> String? {
+        guard let id = displayID(for: screen), let uuid = CGDisplayCreateUUIDFromDisplayID(id) else { return nil }
+        return CFUUIDCreateString(nil, uuid.takeRetainedValue()) as String
+    }
+
+    private func pixelSize(of screen: NSScreen) -> (width: Int, height: Int) {
+        (
+            Int((screen.frame.width * screen.backingScaleFactor).rounded()),
+            Int((screen.frame.height * screen.backingScaleFactor).rounded())
+        )
+    }
+
+    private func screen(matching position: HUDPosition) -> NSScreen? {
+        if let uuid = position.displayUUID,
+           let exact = NSScreen.screens.first(where: { displayUUID(for: $0) == uuid }) { return exact }
+        if let id = position.legacyDisplayID,
+           let legacy = NSScreen.screens.first(where: { displayID(for: $0) == id }) { return legacy }
+        if let name = position.displayName,
+           let width = position.pixelWidth,
+           let height = position.pixelHeight,
+           let matched = NSScreen.screens.first(where: {
+               let size = pixelSize(of: $0)
+               return $0.localizedName == name && size.width == width && size.height == height
+           }) { return matched }
+        if let name = position.displayName {
+            return NSScreen.screens.first(where: { $0.localizedName == name })
+        }
+        return nil
     }
 
     private static func makeGlassContent(model: AppModel) -> NSView {

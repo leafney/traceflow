@@ -33,9 +33,24 @@ final class HooksInstallerTests: XCTestCase {
         let hooks = root.appendingPathComponent("hooks.json"); try Data("bad".utf8).write(to: hooks)
         let source = root.appendingPathComponent("source"); try Data("x".utf8).write(to: source)
         let installer = HooksInstaller(hooksURL: hooks, installedNotifierURL: root.appendingPathComponent("installed"), sourceNotifierURL: source)
+        XCTAssertEqual(installer.inspect().state, .corrupted)
         XCTAssertThrowsError(try installer.installOrRepair())
         XCTAssertEqual(try String(contentsOf: hooks), "bad")
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("installed").path))
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testInspectionDistinguishesMissingAndOrphanedNotifier() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let hooks = root.appendingPathComponent("hooks.json")
+        let installed = root.appendingPathComponent("installed")
+        let source = root.appendingPathComponent("source")
+        let installer = HooksInstaller(hooksURL: hooks, installedNotifierURL: installed, sourceNotifierURL: source)
+
+        XCTAssertEqual(installer.inspect().state, .missing)
+        try Data("orphan".utf8).write(to: installed)
+        XCTAssertEqual(installer.inspect().state, .incomplete)
         try? FileManager.default.removeItem(at: root)
     }
 

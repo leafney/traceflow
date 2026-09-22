@@ -1,5 +1,4 @@
 import Foundation
-import Darwin
 
 public struct CodexThreadSummary: Codable, Sendable, Equatable {
     public let id: String
@@ -195,7 +194,7 @@ public struct CodexAppServerClient: Sendable {
             output.fileHandleForReading.readabilityHandler = nil
             errorOutput.fileHandleForReading.readabilityHandler = nil
             try? input.fileHandleForWriting.close()
-            stop(process)
+            ProcessLifecycle.terminate(process)
         }
 
         try send(
@@ -267,13 +266,6 @@ public struct CodexAppServerClient: Sendable {
         return min(responseTimeout, remaining)
     }
 
-    private func stop(_ process: Process) {
-        guard process.isRunning else { return }
-        process.terminate()
-        let gracefulDeadline = Date(timeIntervalSinceNow: 1)
-        while process.isRunning, Date() < gracefulDeadline { Thread.sleep(forTimeInterval: 0.01) }
-        if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
-    }
 }
 
 private final class JSONLineResponseCollector: @unchecked Sendable {

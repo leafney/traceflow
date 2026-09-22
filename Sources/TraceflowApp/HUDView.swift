@@ -81,8 +81,17 @@ private struct StatusLight: View {
 
     private func animationPhase(at date: Date) -> Double {
         guard active, !reduceMotion else { return 1 }
-        let period: Double = kind == .attention ? 0.56 : 2.30
-        return (sin(date.timeIntervalSinceReferenceDate / period * 2 * .pi - .pi / 2) + 1) / 2
+        let period = kind == .attention ? 0.56 : 2.30
+        let progress = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+        if kind == .attention {
+            switch progress {
+            case 0..<0.15: return progress / 0.15
+            case 0.15..<0.55: return 1
+            case 0.55..<0.70: return 1 - (progress - 0.55) / 0.15
+            default: return 0
+            }
+        }
+        return (sin(progress * 2 * .pi - .pi / 2) + 1) / 2
     }
 
     private func activeOpacity(phase: Double) -> Double {

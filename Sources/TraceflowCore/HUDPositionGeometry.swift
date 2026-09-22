@@ -8,8 +8,8 @@ public enum HUDMetrics {
     public static let titleLength: CGFloat = 275
     public static let titleTextLength: CGFloat = 263
     public static let lightAreaLength: CGFloat = 104
-    public static let lightDiameter: CGFloat = 28
-    public static let lightSpacing: CGFloat = 4
+    public static let lightDiameter: CGFloat = 27
+    public static let lightSpacing: CGFloat = 6
     public static let separatorThickness: CGFloat = 0.5
     public static let edgeOffset: CGFloat = 12
 }

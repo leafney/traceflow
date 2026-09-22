@@ -13,7 +13,7 @@ final class HUDPositionGeometryTests: XCTestCase {
         XCTAssertEqual(HUDMetrics.iconLength + HUDMetrics.separatorThickness + HUDMetrics.titleLength + HUDMetrics.separatorThickness + HUDMetrics.lightAreaLength,
                        HUDMetrics.longAxis)
         XCTAssertEqual(HUDMetrics.lightDiameter * 3 + HUDMetrics.lightSpacing * 2,
-                       HUDMetrics.lightAreaLength - 12)
+                       HUDMetrics.lightAreaLength - 11)
         XCTAssertEqual(HUDMetrics.titleTextLength, HUDMetrics.titleLength - 12)
     }
 

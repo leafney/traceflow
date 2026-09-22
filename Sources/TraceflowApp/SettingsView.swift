@@ -135,15 +135,13 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
-            Menu("批量操作") {
-                Button("全部启用") { model.setProjectIncluded(true, projectKey: project.id) }
-                    .disabled(project.selectionState == .all)
-                Button("全部关闭") { model.setProjectIncluded(false, projectKey: project.id) }
-                    .disabled(project.selectionState == .none)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .accessibilityLabel("项目 \(project.displayName) 批量操作")
+            Toggle("项目全部参与 HUD", isOn: Binding(
+                get: { project.selectionState == .all },
+                set: { model.setProjectIncluded($0, projectKey: project.id) }
+            ))
+            .toggleStyle(.switch)
+            .labelsHidden()
+            .accessibilityLabel("项目 \(project.displayName) 全部参与 HUD")
             .disabled(!model.sessionDataHealth.allowsSaving)
         }
         .contentShape(Rectangle())
@@ -157,6 +155,7 @@ struct SettingsView: View {
                 get: { session.persisted.isIncludedInHUD },
                 set: { model.setIncluded($0, sessionID: session.id) }
             ))
+            .toggleStyle(.switch)
             .labelsHidden()
             .disabled(!model.sessionDataHealth.allowsSaving)
             .accessibilityLabel("\(title) 参与 HUD")

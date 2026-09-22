@@ -127,6 +127,14 @@ private enum StatusLightKind {
         case .completed: .green
         }
     }
+
+    var runtimeState: SessionRuntimeState {
+        switch self {
+        case .attention: .attention
+        case .running: .running
+        case .completed: .completed
+        }
+    }
 }
 
 private struct StatusLight: View {
@@ -137,24 +145,26 @@ private struct StatusLight: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active || reduceMotion)) { timeline in
-            let phase = animationPhase(at: timeline.date)
-            let intensity = activeOpacity(phase: phase)
+            let visual = HUDLightAnimation.parameters(
+                for: kind.runtimeState,
+                isActive: active,
+                referenceTime: timeline.date.timeIntervalSinceReferenceDate,
+                reduceMotion: reduceMotion
+            )
             let parameters = GlowParameters(mode: glow)
-            let scale = reduceMotion ? 1.0 : 1.0 + phase * (parameters.maximumScale - 1.0)
 
             ZStack {
                 if active {
                     glowLayer(diameter: 40, blurRadius: parameters.outerBlur,
-                              peakOpacity: parameters.outerOpacity, intensity: intensity)
-                        .scaleEffect(scale)
+                              peakOpacity: parameters.outerOpacity, intensity: visual.glowIntensity)
                     glowLayer(diameter: 34, blurRadius: parameters.innerBlur,
-                              peakOpacity: parameters.innerOpacity, intensity: intensity)
-                        .scaleEffect(scale)
+                              peakOpacity: parameters.innerOpacity, intensity: visual.glowIntensity)
                 }
                 Circle()
-                    .fill(kind.color.opacity(active ? intensity : 0.18))
+                    .fill(kind.color.opacity(visual.bodyOpacity))
                     .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
             }
+            .scaleEffect(visual.scale)
             .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
         }
         .accessibilityHidden(true)
@@ -176,38 +186,9 @@ private struct StatusLight: View {
             .blur(radius: blurRadius)
     }
 
-    private func animationPhase(at date: Date) -> Double {
-        guard active, !reduceMotion else { return 1 }
-        let period: Double
-        switch kind {
-        case .attention: period = 0.56
-        case .running: period = 2.30
-        case .completed: period = 2.80
-        }
-        let progress = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
-        if kind == .attention {
-            switch progress {
-            case 0..<0.15: return progress / 0.15
-            case 0.15..<0.55: return 1
-            case 0.55..<0.70: return 1 - (progress - 0.55) / 0.15
-            default: return 0
-            }
-        }
-        return (sin(progress * 2 * .pi - .pi / 2) + 1) / 2
-    }
-
-    private func activeOpacity(phase: Double) -> Double {
-        guard active, !reduceMotion else { return active ? 1 : 0.18 }
-        switch kind {
-        case .attention: return 0.35 + phase * 0.65
-        case .running: return 0.65 + phase * 0.35
-        case .completed: return 1
-        }
-    }
 }
 
 private struct GlowParameters {
-    let maximumScale: CGFloat
     let innerBlur: CGFloat
     let innerOpacity: Double
     let outerBlur: CGFloat
@@ -216,13 +197,11 @@ private struct GlowParameters {
     init(mode: HUDGlowMode) {
         switch mode {
         case .standard:
-            maximumScale = 1.15
             innerBlur = 6
             innerOpacity = 0.50
             outerBlur = 12
             outerOpacity = 0.28
         case .strong:
-            maximumScale = 1.30
             innerBlur = 9
             innerOpacity = 0.70
             outerBlur = 18

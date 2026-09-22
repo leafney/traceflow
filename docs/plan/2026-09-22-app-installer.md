@@ -11,7 +11,7 @@ Traceflow 当前只能从仓库的构建产物目录运行，并未安装到 mac
 
 ## Solution
 
-提供一个可直接执行的一键安装脚本。脚本构建当前源码，将完整 App 安装到 `/Applications/Traceflow.app`，注册到 macOS Launch Services，并自动启动。Traceflow 继续保持仅菜单栏、无 Dock 图标，但可从 Finder“应用程序”、Spotlight 和启动台重新打开。
+提供一个可直接执行的一键安装脚本。脚本构建当前源码，将完整 App 安装到 `/Applications/Traceflow.app`，注册到 macOS Launch Services，并在安装完成时立即打开一次，不设置开机自动启动。Traceflow 继续保持仅菜单栏、无 Dock 图标，但可从 Finder“应用程序”、Spotlight 和启动台重新打开。
 
 ## User Stories
 
@@ -22,7 +22,7 @@ Traceflow 当前只能从仓库的构建产物目录运行，并未安装到 mac
 5. 作为用户，我希望 Traceflow 运行时仍不显示 Dock 图标，从而保持轻量菜单栏工具的体验。
 6. 作为用户，我希望重复运行安装脚本能够升级现有安装，从而不必先手动卸载旧版本。
 7. 作为用户，我希望安装更新不会删除 Hooks、设置、会话和日志，从而保留已有使用状态。
-8. 作为用户，我希望安装完成后 Traceflow 自动启动，从而立即确认安装成功。
+8. 作为用户，我希望安装完成后 Traceflow 立即打开一次，从而确认安装成功，但重启电脑后不自动启动。
 9. 作为用户，我希望安装失败时看到明确错误，从而知道是构建失败还是没有系统应用目录写权限。
 
 ## Implementation Decisions
@@ -34,7 +34,7 @@ Traceflow 当前只能从仓库的构建产物目录运行，并未安装到 mac
 - 先将新 App 复制到目标目录旁的临时路径，验证包结构后再替换正式安装，减少半安装状态。
 - 若当前用户无权写入 `/Applications`，脚本明确请求管理员权限；不静默改装到其他目录。
 - 更新安装只替换 App 包，不删除 `~/.codex/hooks.json`、Application Support、UserDefaults 或日志目录。
-- 安装完成后刷新 Launch Services 注册，并通过系统 `open` 命令启动已安装的 App。
+- 安装完成后刷新 Launch Services 注册，并通过系统 `open` 命令仅在本次安装结束时打开已安装的 App；脚本不得创建登录项、LaunchAgent 或其他开机自动启动配置。
 - 构建产物保持开发者本机临时签名；正式签名、公证和 DMG 仍不在 MVP 范围内。
 - 在 README 中补充安装、重新打开和“无 Dock 图标是预期行为”的说明。
 
@@ -51,7 +51,7 @@ Traceflow 当前只能从仓库的构建产物目录运行，并未安装到 mac
 ## Out of Scope
 
 - 在 Dock 中显示 Traceflow。
-- 开机自动启动。
+- 开机自动启动或登录时自动启动。
 - Mac App Store、Developer ID 正式签名、公证、DMG 和自动更新。
 - 将 Hooks、设置、会话或日志迁入 `/Applications/Traceflow.app`。
 - 制作新的品牌应用图标；未提供图标资产时使用 macOS 默认应用图标。

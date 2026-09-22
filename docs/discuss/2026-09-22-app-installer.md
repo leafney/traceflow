@@ -14,6 +14,14 @@
 
 用户回答：保持仅菜单栏、无 Dock 图标。当前真正的问题是程序退出后无法在“应用程序”中找到并重新打开。
 
+### 问题 2
+
+安装完成后是否立即打开一次 Traceflow？这与设置开机自动启动不同。
+
+推荐答案：安装完成后立即打开一次，方便确认安装成功；不设置任何开机自动启动项。
+
+用户回答：确认。并特别补充，一键安装脚本不需要设置开机自动启动。
+
 ## 代码与现状核验
 
 - `Info.plist` 已通过 `LSUIElement=true` 将 Traceflow 设置为仅菜单栏应用。
@@ -26,7 +34,7 @@
 
 1. Traceflow 继续保持仅菜单栏运行，不增加 Dock 图标。
 2. 新增一键安装脚本，将当前版本构建并安装到 `/Applications/Traceflow.app`。
-3. 安装完成后向 macOS Launch Services 注册应用，并自动启动 Traceflow。
+3. 安装完成后向 macOS Launch Services 注册应用，并仅在本次安装结束时打开一次 Traceflow；不设置开机自动启动。
 4. 退出后用户可以从 Finder“应用程序”、Spotlight 或启动台重新打开 Traceflow。
 5. 重复执行安装脚本应安全更新现有安装，不影响用户的 Hooks、设置、会话和日志。
 6. 应用运行数据继续保存在 Application Support 等用户目录，不写入 App 包。

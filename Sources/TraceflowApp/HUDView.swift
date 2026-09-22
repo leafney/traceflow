@@ -29,6 +29,7 @@ struct HUDView: View {
             ZStack {
                 title
                     .frame(width: HUDMetrics.titleTextLength, alignment: .leading)
+                    .compositingGroup()
                     .id(model.displayedSession?.id ?? "placeholder")
                     .transition(titleTransition(vertical: false))
             }
@@ -48,6 +49,7 @@ struct HUDView: View {
             ZStack {
                 VerticalMixedTitleView(title: model.displayedSession?.displayTitle ?? "Traceflow")
                     .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
+                    .compositingGroup()
                     .id(model.displayedSession?.id ?? "placeholder")
                     .transition(titleTransition(vertical: true))
             }
@@ -99,8 +101,8 @@ struct HUDView: View {
             return .opacity
         case .slide:
             return .asymmetric(
-                insertion: .move(edge: vertical ? .leading : .bottom),
-                removal: .move(edge: vertical ? .trailing : .top)
+                insertion: .move(edge: vertical ? .leading : .bottom).combined(with: .opacity),
+                removal: .move(edge: vertical ? .trailing : .top).combined(with: .opacity)
             )
         }
     }
@@ -108,7 +110,9 @@ struct HUDView: View {
     private var titleAnimation: Animation? {
         switch HUDTitleTransition.style(shouldAnimate: model.shouldAnimateDisplayChange, reduceMotion: reduceMotion) {
         case .none: nil
-        case .slide: .easeInOut(duration: 0.25)
+        // A short decelerating transition feels responsive and remains smooth
+        // when SwiftUI interrupts it for a newer carousel decision.
+        case .slide: .easeOut(duration: 0.20)
         case .fade: .easeInOut(duration: 0.15)
         }
     }

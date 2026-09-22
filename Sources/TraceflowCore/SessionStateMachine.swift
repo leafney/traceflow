@@ -45,7 +45,7 @@ public struct SessionStateMachine: Sendable {
         case .sessionStart, .interrupt, .sessionEnd:
             snapshot.state = .idle
             snapshot.completedAt = nil
-        case .userPromptSubmit, .postToolUse:
+        case .userPromptSubmit, .preToolUse, .postToolUse:
             snapshot.state = .running
             snapshot.completedAt = nil
         case .permissionRequest:

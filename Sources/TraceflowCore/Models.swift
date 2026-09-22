@@ -10,6 +10,7 @@ public enum SessionRuntimeState: String, Codable, Sendable, CaseIterable {
 public enum HookEventName: String, Codable, Sendable {
     case sessionStart = "SessionStart"
     case userPromptSubmit = "UserPromptSubmit"
+    case preToolUse = "PreToolUse"
     case permissionRequest = "PermissionRequest"
     case postToolUse = "PostToolUse"
     case stop = "Stop"

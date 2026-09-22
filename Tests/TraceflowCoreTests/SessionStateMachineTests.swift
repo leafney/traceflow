@@ -15,15 +15,63 @@ final class SessionStateMachineTests: XCTestCase {
         XCTAssertEqual(machine.snapshot.state, .attention)
         XCTAssertTrue(result.stateChanged)
 
-        _ = machine.apply(envelope(.postToolUse, uptime: 3), now: base)
+        result = machine.apply(envelope(.preToolUse, uptime: 3), now: base)
         XCTAssertEqual(machine.snapshot.state, .running)
-        _ = machine.apply(envelope(.stop, uptime: 4), now: base)
+        XCTAssertTrue(result.stateChanged)
+        _ = machine.apply(envelope(.postToolUse, uptime: 4), now: base)
+        XCTAssertEqual(machine.snapshot.state, .running)
+        _ = machine.apply(envelope(.stop, uptime: 5), now: base)
         XCTAssertEqual(machine.snapshot.state, .completed)
-        _ = machine.apply(envelope(.interrupt, uptime: 5), now: base)
+        _ = machine.apply(envelope(.interrupt, uptime: 6), now: base)
         XCTAssertEqual(machine.snapshot.state, .idle)
 
-        _ = machine.apply(envelope(.userPromptSubmit, uptime: 6, prompt: "第二次输入"), now: base)
+        _ = machine.apply(envelope(.userPromptSubmit, uptime: 7, prompt: "第二次输入"), now: base)
         XCTAssertEqual(machine.snapshot.conversationSummary, "第一次输入")
+    }
+
+    func testPreToolUseClearsCompletionAndTransitionsAttentionToRunning() {
+        var machine = makeMachine()
+        _ = machine.apply(envelope(.stop, uptime: 1), now: base)
+        XCTAssertNotNil(machine.snapshot.completedAt)
+        _ = machine.apply(envelope(.permissionRequest, uptime: 2), now: base)
+
+        let result = machine.apply(envelope(.preToolUse, uptime: 3), now: base)
+
+        XCTAssertTrue(result.accepted)
+        XCTAssertEqual(result.oldState, .attention)
+        XCTAssertEqual(result.newState, .running)
+        XCTAssertTrue(result.stateChanged)
+        XCTAssertEqual(machine.snapshot.state, .running)
+        XCTAssertNil(machine.snapshot.completedAt)
+    }
+
+    func testNewerPermissionRequestOverridesPreToolUseAndViceVersa() {
+        var preThenPermission = makeMachine()
+        _ = preThenPermission.apply(envelope(.preToolUse, uptime: 1), now: base)
+        _ = preThenPermission.apply(envelope(.permissionRequest, uptime: 2), now: base)
+        XCTAssertEqual(preThenPermission.snapshot.state, .attention)
+
+        var permissionThenPre = makeMachine()
+        _ = permissionThenPre.apply(envelope(.permissionRequest, uptime: 1), now: base)
+        _ = permissionThenPre.apply(envelope(.preToolUse, uptime: 2), now: base)
+        XCTAssertEqual(permissionThenPre.snapshot.state, .running)
+    }
+
+    func testOlderPreToolUseCannotOverrideNewerPermissionRequest() {
+        var machine = makeMachine()
+        _ = machine.apply(envelope(.permissionRequest, uptime: 2), now: base)
+
+        let result = machine.apply(envelope(.preToolUse, uptime: 1), now: base)
+
+        XCTAssertFalse(result.accepted)
+        XCTAssertEqual(result.rejection, .outOfOrder)
+        XCTAssertEqual(machine.snapshot.state, .attention)
+    }
+
+    func testPreToolUseCodableRoundTripUsesOfficialName() throws {
+        let encoded = try JSONEncoder().encode(HookEventName.preToolUse)
+        XCTAssertEqual(String(decoding: encoded, as: UTF8.self), "\"PreToolUse\"")
+        XCTAssertEqual(try JSONDecoder().decode(HookEventName.self, from: encoded), .preToolUse)
     }
 
     func testCompactionDuplicateAndOldEventAreRejected() {

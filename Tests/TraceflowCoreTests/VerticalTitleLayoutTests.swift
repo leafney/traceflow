@@ -15,6 +15,13 @@ final class VerticalTitleLayoutTests: XCTestCase {
         XCTAssertEqual(VerticalTitleParser.segments(for: "cafe\u{301}"), [.latin("cafe\u{301}")])
     }
 
+    func testPreservesProjectAndSummaryMiddleDotAsVisibleVerticalSeparator() {
+        XCTAssertEqual(
+            VerticalTitleParser.segments(for: "traceflow · 测试一下选择"),
+            [.latin("traceflow"), .gap, .han("·"), .han("测"), .han("试"), .han("一"), .han("下"), .han("选"), .han("择")]
+        )
+    }
+
     func testDropsChinesePunctuationWithoutGap() {
         XCTAssertEqual(
             VerticalTitleParser.segments(for: "小米，遥控器。设置"),

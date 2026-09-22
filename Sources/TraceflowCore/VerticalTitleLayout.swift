@@ -41,6 +41,16 @@ public enum VerticalTitleParser {
 
         for index in characters.indices {
             let character = characters[index]
+            // TitleBuilder joins project and conversation summary with a middle
+            // dot. Unlike ordinary punctuation, preserve it as a visible upright
+            // separator in the vertical HUD so the two title parts remain clear.
+            if character == "·" {
+                flushLatin()
+                appendGapIfNeeded(before: .han)
+                result.append(.han(character))
+                previousKind = .han
+                continue
+            }
             if isHan(character) {
                 flushLatin()
                 appendGapIfNeeded(before: .han)

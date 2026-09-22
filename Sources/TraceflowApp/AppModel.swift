@@ -20,9 +20,11 @@ final class AppModel: ObservableObject {
     @Published var sessionSyncMessage: String?
     @Published var isHUDVisible: Bool { didSet { defaults.set(isHUDVisible, forKey: "hudVisible") } }
     @Published var displayDuration: Double { didSet { defaults.set(displayDuration, forKey: "displayDuration") } }
-    @Published var glowStrength: Int { didSet { defaults.set(glowStrength, forKey: "glowStrength") } }
+    @Published var hudLayoutMode: HUDLayoutMode { didSet { hudPreferences.saveLayoutMode(hudLayoutMode) } }
+    @Published var hudGlowMode: HUDGlowMode { didSet { hudPreferences.saveGlowMode(hudGlowMode) } }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+    private let hudPreferences: HUDPreferences
     private let logger = RotatingLogger(directory: TraceflowPaths.logs())
     private let sessionStore = SessionStore(url: TraceflowPaths.sessions())
     private var machines: [String: SessionStateMachine] = [:]
@@ -33,10 +35,14 @@ final class AppModel: ObservableObject {
     private var pendingHealthCheckID: String?
 
     init() {
-        defaults.register(defaults: ["hudVisible": true, "displayDuration": 5.0, "glowStrength": 1])
+        let defaults = UserDefaults.standard
+        self.defaults = defaults
+        hudPreferences = HUDPreferences(defaults: defaults)
+        defaults.register(defaults: ["hudVisible": true, "displayDuration": 5.0])
         isHUDVisible = defaults.bool(forKey: "hudVisible")
         displayDuration = [3.0, 5.0, 10.0].contains(defaults.double(forKey: "displayDuration")) ? defaults.double(forKey: "displayDuration") : 5
-        glowStrength = min(2, max(0, defaults.integer(forKey: "glowStrength")))
+        hudLayoutMode = hudPreferences.loadLayoutMode()
+        hudGlowMode = hudPreferences.loadGlowMode()
         expandedProjectKeys = Set(defaults.stringArray(forKey: "expandedProjectKeys") ?? [])
         restoreSessions()
     }

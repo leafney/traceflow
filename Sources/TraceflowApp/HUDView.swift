@@ -24,9 +24,9 @@ struct HUDView: View {
             .padding(.horizontal, 8)
             separator
             HStack(spacing: 8) {
-                StatusLight(kind: .attention, active: model.displayedSession?.state == .attention, glow: model.glowStrength, reduceMotion: reduceMotion)
-                StatusLight(kind: .running, active: model.displayedSession?.state == .running, glow: model.glowStrength, reduceMotion: reduceMotion)
-                StatusLight(kind: .completed, active: model.displayedSession?.state == .completed, glow: model.glowStrength, reduceMotion: reduceMotion)
+                StatusLight(kind: .attention, active: model.displayedSession?.state == .attention, glow: model.hudGlowMode == .strong ? 2 : 1, reduceMotion: reduceMotion)
+                StatusLight(kind: .running, active: model.displayedSession?.state == .running, glow: model.hudGlowMode == .strong ? 2 : 1, reduceMotion: reduceMotion)
+                StatusLight(kind: .completed, active: model.displayedSession?.state == .completed, glow: model.hudGlowMode == .strong ? 2 : 1, reduceMotion: reduceMotion)
             }
             .frame(width: 104)
         }

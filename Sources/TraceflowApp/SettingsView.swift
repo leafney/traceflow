@@ -9,8 +9,15 @@ struct SettingsView: View {
         Form {
             Section("常规") {
                 Toggle("显示 HUD", isOn: $model.isHUDVisible)
+                Picker("显示方向", selection: $model.hudLayoutMode) {
+                    Text("横向").tag(HUDLayoutMode.horizontal)
+                    Text("纵向").tag(HUDLayoutMode.vertical)
+                }
                 Picker("轮播间隔", selection: $model.displayDuration) { Text("3 秒").tag(3.0); Text("5 秒").tag(5.0); Text("10 秒").tag(10.0) }
-                Picker("光晕强度", selection: $model.glowStrength) { Text("低").tag(0); Text("中").tag(1); Text("高").tag(2) }
+                Picker("光晕效果", selection: $model.hudGlowMode) {
+                    Text("标准").tag(HUDGlowMode.standard)
+                    Text("强烈").tag(HUDGlowMode.strong)
+                }
                 Button("恢复 HUD 默认位置") { model.resetHUDPosition() }
             }
             Section("Codex Hooks") {

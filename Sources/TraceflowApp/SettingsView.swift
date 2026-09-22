@@ -12,7 +12,8 @@ struct SettingsView: View {
             }
             Section("Codex Hooks") {
                 HStack { Circle().fill(healthColor).frame(width: 10, height: 10); Text(healthTitle); Spacer(); Text(model.hooksHealth.detail).foregroundStyle(.secondary) }
-                Text("安装、修复与移除操作将在下一阶段接入。").font(.caption).foregroundStyle(.secondary)
+                HStack { Button("安装/修复 Hooks") { model.installHooks() }; Button("移除 Hooks", role: .destructive) { model.removeHooks() } }
+                if let message = model.hooksActionMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
             }
             Section("会话") {
                 if model.sessions.isEmpty { Text("尚未发现会话").foregroundStyle(.secondary) }

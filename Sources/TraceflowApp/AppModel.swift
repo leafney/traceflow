@@ -9,6 +9,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var sessions: [SessionSnapshot] = []
     @Published private(set) var displayedSession: SessionSnapshot?
     @Published private(set) var hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装 Traceflow Hooks")
+    @Published var hooksActionMessage: String?
     @Published var isHUDVisible: Bool { didSet { defaults.set(isHUDVisible, forKey: "hudVisible") } }
     @Published var displayDuration: Double { didSet { defaults.set(displayDuration, forKey: "displayDuration") } }
     @Published var glowStrength: Int { didSet { defaults.set(glowStrength, forKey: "glowStrength") } }
@@ -96,6 +97,16 @@ final class AppModel: ObservableObject {
 
     func resetHUDPosition() { NotificationCenter.default.post(name: .traceflowResetHUDPosition, object: nil) }
 
+    func installHooks() {
+        do { try makeHooksInstaller().installOrRepair(); hooksActionMessage = "安装完成。请在 Codex 中执行 /hooks 并信任，然后发送一条消息。"; refreshHooksHealth() }
+        catch { hooksHealth = HooksHealth(state: .error, detail: error.localizedDescription); hooksActionMessage = error.localizedDescription }
+    }
+
+    func removeHooks() {
+        do { try makeHooksInstaller().remove(); defaults.removeObject(forKey: "lastHookEvent"); hooksActionMessage = "Traceflow Hooks 已移除。"; refreshHooksHealth() }
+        catch { hooksHealth = HooksHealth(state: .error, detail: error.localizedDescription); hooksActionMessage = error.localizedDescription }
+    }
+
     private func apply(_ envelope: HookEnvelope) {
         let id = envelope.payload.sessionID
         var machine = machines[id] ?? makeMachine(for: envelope)
@@ -140,11 +151,17 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshHooksHealth() {
-        let notifierExists = FileManager.default.isExecutableFile(atPath: TraceflowPaths.installedNotifier().path)
-        let configExists = FileManager.default.fileExists(atPath: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/hooks.json").path)
-        if !notifierExists || !configExists { hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装完整 Traceflow Hooks") }
+        if !makeHooksInstaller().isInstalled() { hooksHealth = HooksHealth(state: .notInstalled, detail: "尚未安装完整 Traceflow Hooks") }
         else if let last = defaults.object(forKey: "lastHookEvent") as? Date { hooksHealth = HooksHealth(state: .healthy, detail: "最近事件：\(last.formatted(date: .abbreviated, time: .shortened))") }
         else { hooksHealth = HooksHealth(state: .pendingVerification, detail: "请在 Codex 中执行 /hooks 并发送消息") }
+    }
+
+    private func makeHooksInstaller() -> HooksInstaller {
+        let hooksURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/hooks.json")
+        let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
+        let bundled = executable.deletingLastPathComponent().appendingPathComponent("traceflow-notify")
+        let development = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(".build/release/traceflow-notify")
+        return HooksInstaller(hooksURL: hooksURL, installedNotifierURL: TraceflowPaths.installedNotifier(), sourceNotifierURL: FileManager.default.fileExists(atPath: bundled.path) ? bundled : development)
     }
 }
 

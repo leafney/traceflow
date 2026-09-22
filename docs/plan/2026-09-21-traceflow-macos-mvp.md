@@ -2,7 +2,7 @@
 
 Related discussion: [`docs/discuss/2026-09-21-traceflow-macos-mvp.md`](../discuss/2026-09-21-traceflow-macos-mvp.md)
 
-状态：待用户批准后实施
+状态：已批准并完成 MVP 实施
 目标版本：MVP 0.1
 最低系统：macOS 14 Sonoma
 交付方式：开发者本机直接构建运行

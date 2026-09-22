@@ -3,6 +3,8 @@ import TraceflowCore
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
+    @State private var confirmation: DestructiveConfirmation?
+
     var body: some View {
         Form {
             Section("常规") {
@@ -12,7 +14,9 @@ struct SettingsView: View {
                 Button("恢复 HUD 默认位置") { model.resetHUDPosition() }
             }
             Section("Codex Hooks") {
-                HStack { Circle().fill(healthColor).frame(width: 10, height: 10); Text(healthTitle); Spacer(); Text(model.hooksHealth.detail).foregroundStyle(.secondary) }
+                healthRow(label: "Hooks 配置", color: hooksHealthColor, state: hooksHealthTitle, detail: model.hooksHealth.detail)
+                healthRow(label: "本地通信", color: communicationHealthColor, state: communicationHealthTitle, detail: model.localCommunicationHealth.detail)
+                healthRow(label: "会话数据", color: sessionDataHealthColor, state: sessionDataHealthTitle, detail: sessionDataHealthDetail)
                 HStack {
                     Button("安装/修复 Hooks") { model.installHooks() }
                     Button("测试转发通道") { model.verifyHooksConnection() }.disabled(model.isVerifyingHooks)
@@ -20,10 +24,12 @@ struct SettingsView: View {
                     Button("移除 Hooks", role: .destructive) { model.removeHooks() }
                 }
                 if let message = model.hooksActionMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
+                sessionDataRecoveryActions
             }
             Section("会话") {
                 HStack {
-                    Button("同步 Codex 会话") { model.syncCodexSessions() }.disabled(model.isSyncingSessions)
+                    Button("同步 Codex 会话") { model.syncCodexSessions() }
+                        .disabled(model.isSyncingSessions || !model.sessionDataHealth.allowsSaving)
                     if model.isSyncingSessions { ProgressView().controlSize(.small) }
                 }
                 if let message = model.sessionSyncMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
@@ -37,13 +43,67 @@ struct SettingsView: View {
                         }
                     }
                 }
-                if !model.sessions.isEmpty { Button("清空全部记录", role: .destructive) { model.clearSessions() } }
+                if !model.sessions.isEmpty {
+                    Button("清空全部记录", role: .destructive) {
+                        confirmation = DestructiveConfirmation(kind: .clearAll)
+                    }
+                    .disabled(!model.sessionDataHealth.allowsSaving)
+                }
             }
             Section("诊断") {
                 Button("打开日志目录") { model.openLogsDirectory() }
                 Button("清除日志", role: .destructive) { model.clearLogs() }
             }
-        }.formStyle(.grouped).padding().frame(minWidth: 680, minHeight: 600)
+        }
+        .formStyle(.grouped).padding().frame(minWidth: 680, minHeight: 600)
+        .alert(item: $confirmation) { item in
+            switch item.kind {
+            case let .deleteSession(id, _):
+                Alert(
+                    title: Text("删除此会话记录？"),
+                    message: Text("仅删除 Traceflow 本地记录，不会删除 Codex 中的原始对话。"),
+                    primaryButton: .destructive(Text("删除记录")) { model.deleteSession(id) },
+                    secondaryButton: .cancel(Text("取消"))
+                )
+            case .clearAll:
+                Alert(
+                    title: Text("清空全部会话记录？"),
+                    message: Text("将删除 Traceflow 保存的全部本地会话记录和 HUD 选择，不会删除 Codex 中的原始对话。"),
+                    primaryButton: .destructive(Text("清空全部")) { model.clearSessions() },
+                    secondaryButton: .cancel(Text("取消"))
+                )
+            }
+        }
+    }
+
+    private func healthRow(label: String, color: Color, state: String, detail: String) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(color).frame(width: 10, height: 10)
+            Text(label).frame(width: 72, alignment: .leading)
+            Text(state).fontWeight(.medium)
+            Spacer()
+            Text(detail).foregroundStyle(.secondary).lineLimit(1).help(detail)
+        }
+    }
+
+    @ViewBuilder
+    private var sessionDataRecoveryActions: some View {
+        switch model.sessionDataHealth {
+        case .healthy:
+            EmptyView()
+        case .corrupted:
+            HStack {
+                Button("打开数据目录") { model.openSessionDataDirectory() }
+                Button("备份并重建") { model.backupAndRebuildSessions() }
+                    .disabled(model.isRebuildingSessions)
+                if model.isRebuildingSessions { ProgressView().controlSize(.small) }
+            }
+        case .unwritable:
+            HStack {
+                Button("打开数据目录") { model.openSessionDataDirectory() }
+                Button("重试保存") { model.retrySessionSave() }
+            }
+        }
     }
 
     @ViewBuilder
@@ -77,6 +137,7 @@ struct SettingsView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .accessibilityLabel("项目 \(project.displayName) 批量操作")
+            .disabled(!model.sessionDataHealth.allowsSaving)
         }
         .contentShape(Rectangle())
     }
@@ -90,6 +151,7 @@ struct SettingsView: View {
                 set: { model.setIncluded($0, sessionID: session.id) }
             ))
             .labelsHidden()
+            .disabled(!model.sessionDataHealth.allowsSaving)
             .accessibilityLabel("\(title) 参与 HUD")
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).lineLimit(1).help(title)
@@ -100,11 +162,14 @@ struct SettingsView: View {
             }
             Spacer(minLength: 8)
             Text(runtimeStateTitle(session.state)).foregroundStyle(.secondary)
-            Button(role: .destructive) { model.deleteSession(session.id) } label: {
+            Button(role: .destructive) {
+                confirmation = DestructiveConfirmation(kind: .deleteSession(id: session.id, title: title))
+            } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("删除会话 \(title)")
+            .disabled(!model.sessionDataHealth.allowsSaving)
         }
     }
 
@@ -123,6 +188,27 @@ struct SettingsView: View {
         }
     }
 
-    private var healthTitle: String { switch model.hooksHealth.state { case .notInstalled: "未安装"; case .needsRepair: "需要修复"; case .pendingVerification: "待验证"; case .healthy: "正常"; case .error: "异常" } }
-    private var healthColor: Color { switch model.hooksHealth.state { case .notInstalled: .gray; case .needsRepair, .error: .red; case .pendingVerification: .yellow; case .healthy: .green } }
+    private var hooksHealthTitle: String { switch model.hooksHealth.state { case .notInstalled: "未安装"; case .needsRepair: "需要修复"; case .pendingVerification: "待验证"; case .healthy: "正常"; case .error: "异常" } }
+    private var hooksHealthColor: Color { switch model.hooksHealth.state { case .notInstalled: .gray; case .needsRepair, .error: .red; case .pendingVerification: .yellow; case .healthy: .green } }
+    private var communicationHealthTitle: String { switch model.localCommunicationHealth.state { case .healthy: "正常"; case .testing: "测试中"; case .error: "异常" } }
+    private var communicationHealthColor: Color { switch model.localCommunicationHealth.state { case .healthy: .green; case .testing: .yellow; case .error: .red } }
+    private var sessionDataHealthTitle: String { switch model.sessionDataHealth { case .healthy: "正常"; case .corrupted: "已损坏"; case .unwritable: "无法写入" } }
+    private var sessionDataHealthColor: Color { switch model.sessionDataHealth { case .healthy: .green; case .corrupted, .unwritable: .red } }
+    private var sessionDataHealthDetail: String {
+        switch model.sessionDataHealth {
+        case .healthy: "本地会话数据正常"
+        case let .corrupted(detail): detail
+        case let .unwritable(detail): detail
+        }
+    }
+}
+
+private struct DestructiveConfirmation: Identifiable {
+    let id = UUID()
+    let kind: Kind
+
+    enum Kind {
+        case deleteSession(id: String, title: String)
+        case clearAll
+    }
 }

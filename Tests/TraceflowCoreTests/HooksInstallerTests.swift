@@ -121,6 +121,42 @@ final class HooksInstallerTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    func testPreToolUseIsAsynchronousUnmatchedAndRemovedPrecisely() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let hooks = root.appendingPathComponent("hooks.json")
+        let source = root.appendingPathComponent("source")
+        let installed = root.appendingPathComponent("installed")
+        try Data("binary".utf8).write(to: source)
+        let installer = HooksInstaller(hooksURL: hooks, installedNotifierURL: installed, sourceNotifierURL: source)
+
+        try installer.installOrRepair()
+        var object = try JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as! [String: Any]
+        var allHooks = object["hooks"] as! [String: Any]
+        let groups = allHooks["PreToolUse"] as! [[String: Any]]
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertNil(groups[0]["matcher"])
+        let handler = (groups[0]["hooks"] as! [[String: Any]])[0]
+        XCTAssertEqual(handler["type"] as? String, "command")
+        XCTAssertEqual(handler["command"] as? String, HooksInstaller.shellQuote(installed.path))
+        XCTAssertEqual(handler["timeout"] as? Int, 3)
+        XCTAssertEqual(handler["async"] as? Bool, true)
+
+        var handlers = groups[0]["hooks"] as! [[String: Any]]
+        handlers[0]["timeout"] = 9
+        allHooks["PreToolUse"] = [["hooks": handlers]]
+        object["hooks"] = allHooks
+        try JSONSerialization.data(withJSONObject: object).write(to: hooks)
+        XCTAssertTrue(installer.inspect().issues.contains { $0.contains("PreToolUse") })
+
+        try installer.installOrRepair()
+        try installer.remove()
+        let after = try JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as! [String: Any]
+        let afterHooks = after["hooks"] as! [String: Any]
+        XCTAssertNil(afterHooks["PreToolUse"])
+        try? FileManager.default.removeItem(at: root)
+    }
+
     func testInspectionRequiresSessionStartMatcherAndExecutableNotifier() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

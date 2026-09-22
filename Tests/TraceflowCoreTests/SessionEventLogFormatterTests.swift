@@ -30,6 +30,20 @@ final class SessionEventLogFormatterTests: XCTestCase {
         )
     }
 
+    func testFormatsPreToolUseAttentionToRunningTransition() {
+        XCTAssertEqual(
+            SessionEventLogFormatter.stateTransition(
+                event: .preToolUse,
+                oldState: .attention,
+                newState: .running,
+                projectName: "示例项目",
+                sessionID: "session-1",
+                title: "项目名 · 对话摘要"
+            ),
+            "event=PreToolUse state=attention->running project=\"示例项目\" session_id=\"session-1\" title=\"项目名 · 对话摘要\""
+        )
+    }
+
     func testEscapesQuotesBackslashesAndControlCharactersWithoutPhysicalLineBreaks() {
         let line = SessionEventLogFormatter.stateTransition(
             event: .permissionRequest,

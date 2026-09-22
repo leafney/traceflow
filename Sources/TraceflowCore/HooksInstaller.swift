@@ -162,5 +162,5 @@ public struct HooksInstaller {
         else { try FileManager.default.moveItem(at: temp, to: hooksURL) }
     }
 
-    public static let events = ["SessionStart", "UserPromptSubmit", "PermissionRequest", "PostToolUse", "Stop", "Interrupt", "SessionEnd"]
+    public static let events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "Stop", "Interrupt", "SessionEnd"]
 }

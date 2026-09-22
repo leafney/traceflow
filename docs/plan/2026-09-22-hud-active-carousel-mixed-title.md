@@ -2,7 +2,14 @@
 
 Related discussion: [`docs/discuss/2026-09-22-hud-active-carousel-mixed-title.md`](../discuss/2026-09-22-hud-active-carousel-mixed-title.md)
 
-状态：已批准，正在按阶段实施。本文为本轮实现的正式规格。
+状态：已完成。本文为本轮实现的正式规格与验收依据。
+
+实施记录：
+
+1. 阶段 1 已完成：活跃会话轮播、待机立即退出、占位显示和 600 秒完成超时。
+2. 阶段 2 已完成：27 点三灯、6 点间距、统一呼吸动效、两档光晕和项目级 Switch。
+3. 阶段 3 已完成：中英文混合竖排解析、截断、省略号与 Core Text 矢量绘制。
+4. 阶段 4 已完成：完整单元测试、Debug／Release 构建、应用包、隔离安装和本地 Hook 端到端验证。
 
 ## 0. 覆盖规则与执行约束
 

@@ -300,7 +300,7 @@ PoC 结果应形成独立开发记录，后续实现以实测行为优先，但�
 - `Interrupt`。
 - `SessionEnd`。
 
-不得添加 `PreToolUse`、`PreCompact`、`PostCompact` 或其他无关事件。
+不得添加 `PreCompact`、`PostCompact` 或其他无关事件。`PreToolUse` 已由后续的 [权限确认后的即时运行状态](2026-09-22-pre-tool-use-status.md) PRD 明确纳入，用于修复权限确认后的 HUD 状态切换。
 
 除 `SessionEnd` 外，Traceflow Hook 可设为后台异步执行，以避免阻塞 Codex。`SessionEnd` 按官方行为同步执行，配置中不要虚假声明依赖异步行为。所有命令使用短超时，目标值 3 秒；转发器自身应远快于此值完成。
 

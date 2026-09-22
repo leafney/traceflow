@@ -30,6 +30,7 @@ sync_handler="{type=\"command\",command=$quoted_command,timeout=3}"
 codex exec --dangerously-bypass-hook-trust -C "$repo_root" \
     -c "hooks.SessionStart=[{matcher=\"startup|resume|clear\",hooks=[$async_handler]}]" \
     -c "hooks.UserPromptSubmit=[{hooks=[$async_handler]}]" \
+    -c "hooks.PreToolUse=[{hooks=[$sync_handler]}]" \
     -c "hooks.Stop=[{hooks=[$sync_handler]}]" \
     -c "hooks.SessionEnd=[{hooks=[$sync_handler]}]" \
     "只回复：Traceflow 成品闭环通过。不要调用任何工具。" >/dev/null

@@ -5,7 +5,7 @@ repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 test_dir="$(/usr/bin/mktemp -d /tmp/traceflow-install-test.XXXXXX)"
 trap '/bin/rm -rf -- "$test_dir"' EXIT HUP INT TERM
 
-if [ ! -d "$repo_root/dist/Traceflow.app" ]; then "$repo_root/scripts/build-app.sh"; fi
+"$repo_root/scripts/build-app.sh"
 install_dir="$test_dir/Applications"
 /bin/mkdir -p "$install_dir"
 

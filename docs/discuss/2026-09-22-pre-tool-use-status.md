@@ -44,4 +44,6 @@
 
 本次仅扩展 Traceflow 的事件链路：安装器在用户级 Hooks 配置中安装 `PreToolUse`，转发器按既有协议转发，状态机将其视为 `running`。HUD 不新增文字、尺寸或布局；黄色呼吸灯即表示工具正在执行。用户将手动完成重装、Hooks 安装和 Codex 信任。
 
+部署前审查补充：为避免 `PermissionRequest` 与 `PreToolUse` 都异步时出现进程调度乱序，`PreToolUse` 使用同步、3 秒超时的短本地转发；它不返回权限决策，也不读取工具内容。同步只保证本地转发在工具执行前完成，不能替代真实 Codex 环境的事件语义验收。
+
 `PreToolUse` 不是权限确认结果本身，也不能改变权限决策；它只作为工具开始前的运行信号。必须保留 `PermissionRequest → attention`、`PostToolUse → running`、`Stop → completed` 等既有映射与乱序保护。不能以延时推断、监听 Enter、读取 `/statusline`、读取终端标题、读取 Codex 桌面 UI 或申请辅助功能权限作为本次替代实现。

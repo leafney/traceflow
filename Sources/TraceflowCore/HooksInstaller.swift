@@ -37,7 +37,10 @@ public struct HooksInstaller {
             var groups = hooks[event] as? [[String: Any]] ?? []
             groups = removingTraceflowHandlers(from: groups)
             var handler: [String: Any] = ["type": "command", "command": Self.shellQuote(installedNotifierURL.path), "timeout": 3]
-            if !["Stop", "SessionEnd"].contains(event) { handler["async"] = true }
+            // PreToolUse is deliberately synchronous. Codex waits for this short,
+            // local forwarding operation before executing the tool, preserving the
+            // attention -> running transition order around permission approval.
+            if !["PreToolUse", "Stop", "SessionEnd"].contains(event) { handler["async"] = true }
             var group: [String: Any] = ["hooks": [handler]]
             if event == "SessionStart" { group["matcher"] = "startup|resume|clear" }
             groups.append(group)
@@ -106,7 +109,7 @@ public struct HooksInstaller {
                           (handler["command"] as? String) == expectedCommand,
                           number(handler["timeout"]) == 3 else { return false }
                     let async = handler["async"] as? Bool
-                    return ["Stop", "SessionEnd"].contains(event) ? async != true : async == true
+                    return ["PreToolUse", "Stop", "SessionEnd"].contains(event) ? async != true : async == true
                 }
             }
             if matchingGroup == nil { issues.append("\(event) 定义缺失或不完整") }

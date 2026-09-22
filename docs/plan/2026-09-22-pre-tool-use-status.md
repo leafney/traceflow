@@ -84,8 +84,7 @@ Traceflow 的必需 Hook 事件集合增加 `PreToolUse`。点击设置页的“
     {
       "type": "command",
       "command": "'<Traceflow 已安装转发器绝对路径>'",
-      "timeout": 3,
-      "async": true
+      "timeout": 3
     }
   ]
 }
@@ -94,10 +93,10 @@ Traceflow 的必需 Hook 事件集合增加 `PreToolUse`。点击设置页的“
 具体限制：
 
 - `PreToolUse` 不设置 `matcher`，以覆盖所有支持的本地工具；不得只匹配 `Bash`。
-- `timeout` 必须为数字 `3`，`async` 必须为布尔值 `true`。
+- `timeout` 必须为数字 `3`，并且不得设置 `async: true`。`PreToolUse` 必须同步完成这个短暂的本地 Unix Socket 转发，保证 Codex 真正开始执行工具前 HUD 已收到黄灯状态，避免与异步 `PermissionRequest` 的转发竞争。
 - 处理器命令必须复用已有、经 shell 转义的 Traceflow 已安装转发器绝对路径；不得指向开发目录、App 包内临时文件或新建脚本。
 - 重复点击安装／修复后，一个事件下只能保留一条 Traceflow 处理器；其他应用的 Hook 组和处理器必须原样保留。
-- 配置检查必须将缺失、命令不一致、`timeout` 非 3 或 `async` 不为 true 的 `PreToolUse` 判定为“配置不完整”。
+- 配置检查必须将缺失、命令不一致、`timeout` 非 3 或存在 `async: true` 的 `PreToolUse` 判定为“配置不完整”。
 - 移除 Hooks 时也必须移除 Traceflow 的 `PreToolUse` 处理器，行为与其他 Traceflow 事件一致。
 - 不实现自动点击安装、自动打开 Codex、自动运行 `/hooks`、自动信任，或对用户旧配置做迁移／兼容分支。用户将手工重新安装应用、执行安装／修复并完成信任。
 
@@ -131,7 +130,7 @@ event=PreToolUse state=attention->running project="示例项目" session_id="会
 2. **状态机测试**：从 `attention` 应用 `PreToolUse` 后，断言接受事件、旧状态为 `attention`、新状态为 `running`、`stateChanged == true`、`completedAt == nil`。
 3. **顺序测试**：应用 `PreToolUse` 后再应用较新的 `PermissionRequest`，最终必须为 `attention`；应用 `PermissionRequest` 后再应用较新的 `PreToolUse`，最终必须为 `running`。
 4. **乱序测试**：会话已处理较新事件时，携带更小 `captured_uptime_ns` 的 `PreToolUse` 必须被拒绝，状态不得被覆盖。
-5. **安装器测试**：全新配置安装后，全部 Traceflow 事件（含 `PreToolUse`）各有一条合格处理器；其中 `PreToolUse` 处理器必须无 `matcher`、`timeout == 3`、`async == true`。
+5. **安装器测试**：全新配置安装后，全部 Traceflow 事件（含 `PreToolUse`）各有一条合格处理器；其中 `PreToolUse` 处理器必须无 `matcher`、`timeout == 3`、且不设置 `async: true`。
 6. **安装器幂等测试**：已有 Traceflow `PreToolUse` 处理器时再次安装，最终仍仅有一条；同一配置文件中的非 Traceflow 处理器不得丢失。
 7. **安装器检查测试**：删除或篡改 `PreToolUse` 的任一必需属性后，`inspect()` 必须报告配置不完整；移除后该事件的 Traceflow 处理器必须不存在。
 8. **日志格式测试**：应用 `PreToolUse` 后的日志字符串必须以 `event=PreToolUse state=attention->running` 开始，并保留项目、会话和标题字段的既有转义规则。

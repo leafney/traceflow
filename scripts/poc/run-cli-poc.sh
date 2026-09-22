@@ -16,6 +16,7 @@ TRACEFLOW_POC_OUTPUT="$output_path" codex exec \
     -C "$repo_root" \
     -c "hooks.SessionStart=[{matcher=\"startup|resume|clear\",hooks=[$async_handler]}]" \
     -c "hooks.UserPromptSubmit=[{hooks=[$async_handler]}]" \
+    -c "hooks.PreToolUse=[{hooks=[$sync_handler]}]" \
     -c "hooks.PermissionRequest=[{hooks=[$async_handler]}]" \
     -c "hooks.PostToolUse=[{hooks=[$async_handler]}]" \
     -c "hooks.Stop=[{hooks=[$sync_handler]}]" \

@@ -121,7 +121,7 @@ final class HooksInstallerTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
-    func testPreToolUseIsAsynchronousUnmatchedAndRemovedPrecisely() throws {
+    func testPreToolUseIsSynchronousUnmatchedAndRemovedPrecisely() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let hooks = root.appendingPathComponent("hooks.json")
@@ -140,10 +140,20 @@ final class HooksInstallerTests: XCTestCase {
         XCTAssertEqual(handler["type"] as? String, "command")
         XCTAssertEqual(handler["command"] as? String, HooksInstaller.shellQuote(installed.path))
         XCTAssertEqual(handler["timeout"] as? Int, 3)
-        XCTAssertEqual(handler["async"] as? Bool, true)
+        XCTAssertNil(handler["async"])
 
         var handlers = groups[0]["hooks"] as! [[String: Any]]
         handlers[0]["timeout"] = 9
+        allHooks["PreToolUse"] = [["hooks": handlers]]
+        object["hooks"] = allHooks
+        try JSONSerialization.data(withJSONObject: object).write(to: hooks)
+        XCTAssertTrue(installer.inspect().issues.contains { $0.contains("PreToolUse") })
+
+        try installer.installOrRepair()
+        object = try JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as! [String: Any]
+        allHooks = object["hooks"] as! [String: Any]
+        handlers = ((allHooks["PreToolUse"] as! [[String: Any]])[0]["hooks"] as! [[String: Any]])
+        handlers[0]["async"] = true
         allHooks["PreToolUse"] = [["hooks": handlers]]
         object["hooks"] = allHooks
         try JSONSerialization.data(withJSONObject: object).write(to: hooks)

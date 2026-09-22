@@ -28,6 +28,8 @@ send_event() {
 
 send_event '{"session_id":"e2e-session","cwd":"/tmp/traceflow-demo","hook_event_name":"UserPromptSubmit","turn_id":"turn-1","prompt":"实现本地闭环"}'
 send_event '{"session_id":"e2e-session","cwd":"/tmp/traceflow-demo","hook_event_name":"PermissionRequest","turn_id":"turn-1"}'
+send_event '{"session_id":"e2e-session","cwd":"/tmp/traceflow-demo","hook_event_name":"PreToolUse","turn_id":"turn-1"}'
+send_event '{"session_id":"e2e-session","cwd":"/tmp/traceflow-demo","hook_event_name":"PostToolUse","turn_id":"turn-1"}'
 send_event '{"session_id":"e2e-session","cwd":"/tmp/traceflow-demo","hook_event_name":"Stop","turn_id":"turn-1"}'
 send_event '{"session_id":"e2e-session","cwd":"/tmp/traceflow-demo","hook_event_name":"SessionEnd","turn_id":"turn-1"}'
 
@@ -52,6 +54,8 @@ while [ ! -f "$log" ] && [ "$attempt" -lt 50 ]; do /bin/sleep 0.1; attempt=$((at
 /usr/bin/grep -q 'event=UserPromptSubmit state=idle->running' "$log"
 /usr/bin/grep -q 'event=UserPromptSubmit state=idle->running project="traceflow-demo" session_id="e2e-session" title="traceflow-demo · 实现本地闭环"' "$log"
 /usr/bin/grep -q 'event=PermissionRequest state=running->attention' "$log"
-/usr/bin/grep -q 'event=Stop state=attention->completed' "$log"
+/usr/bin/grep -q 'event=PreToolUse state=attention->running' "$log"
+/usr/bin/grep -q 'event=PostToolUse state=running->running' "$log"
+/usr/bin/grep -q 'event=Stop state=running->completed' "$log"
 /usr/bin/grep -q 'event=SessionEnd state=completed->idle' "$log"
 /usr/bin/printf '%s\n' 'Traceflow 本地状态序列端到端验证通过'

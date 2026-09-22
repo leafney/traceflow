@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 public enum HUDLayoutMode: String, CaseIterable, Identifiable, Sendable {
     case horizontal
@@ -58,6 +59,7 @@ public final class HUDPreferences {
 
     private func legacyGlowValue() -> Int? {
         guard let number = defaults.object(forKey: Self.legacyGlowKey) as? NSNumber else { return nil }
+        guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         let value = number.intValue
         guard (0...2).contains(value), number.doubleValue == Double(value) else { return nil }
         return value

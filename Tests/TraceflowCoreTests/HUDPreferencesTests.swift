@@ -66,6 +66,15 @@ final class HUDPreferencesTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: HUDPreferences.layoutKey), HUDLayoutMode.horizontal.rawValue)
     }
 
+    func testInvalidLegacyTypesDoNotBecomeOldNumericChoice() {
+        let preferences = HUDPreferences(defaults: defaults)
+        defaults.set("2", forKey: HUDPreferences.legacyGlowKey)
+        XCTAssertEqual(preferences.loadGlowMode(), .standard)
+        defaults.removeObject(forKey: HUDPreferences.glowKey)
+        defaults.set(true, forKey: HUDPreferences.legacyGlowKey)
+        XCTAssertEqual(preferences.loadGlowMode(), .standard)
+    }
+
     func testSavingNewValuesSurvivesRepeatedLoads() {
         let preferences = HUDPreferences(defaults: defaults)
         preferences.saveGlowMode(.strong)

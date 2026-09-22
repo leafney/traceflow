@@ -1,36 +1,26 @@
 import AppKit
+import Combine
 import CoreGraphics
 import SwiftUI
+import TraceflowCore
 
 final class NonActivatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
-private struct HUDPosition: Codable {
-    let version: Int
-    let displayUUID: String?
-    let legacyDisplayID: UInt32?
-    let displayName: String?
-    let pixelWidth: Int?
-    let pixelHeight: Int?
-    let relativeX: Double
-    let relativeY: Double
-
-    enum CodingKeys: String, CodingKey {
-        case version, displayUUID, displayName, pixelWidth, pixelHeight, relativeX, relativeY
-        case legacyDisplayID = "displayID"
-    }
-}
-
 @MainActor
 final class HUDPanelController: NSWindowController, NSWindowDelegate {
-    private static let size = NSSize(width: 420, height: 40)
     private let defaults = UserDefaults.standard
+    private let positions = HUDPositionStore(defaults: .standard)
+    private var layout: HUDLayoutMode
+    private var layoutObserver: AnyCancellable?
     private var isRestoringPosition = false
 
     init(model: AppModel) {
-        let panel = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: Self.size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        layout = model.hudLayoutMode
+        let size = HUDPositionGeometry.size(for: layout)
+        let panel = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
@@ -38,11 +28,14 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         panel.hasShadow = true
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false
-        panel.contentView = Self.makeGlassContent(model: model)
+        panel.contentView = Self.makeGlassContent(model: model, size: size)
         super.init(window: panel)
         panel.delegate = self
         restorePosition()
         NotificationCenter.default.addObserver(self, selector: #selector(resetPosition), name: .traceflowResetHUDPosition, object: nil)
+        layoutObserver = model.$hudLayoutMode.dropFirst().sink { [weak self] newLayout in
+            self?.switchLayout(to: newLayout)
+        }
     }
 
     required init?(coder: NSCoder) { nil }
@@ -54,64 +47,73 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         savePosition()
     }
 
-    @objc private func resetPosition() { positionAtTop(of: NSScreen.main ?? NSScreen.screens.first, save: true) }
+    @objc private func resetPosition() {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        isRestoringPosition = true
+        window?.setFrame(HUDPositionGeometry.defaultFrame(for: layout, visible: screen.visibleFrame), display: true)
+        isRestoringPosition = false
+        savePosition()
+    }
     func ensureVisible() { restorePosition() }
+
+    private func switchLayout(to newLayout: HUDLayoutMode) {
+        guard newLayout != layout, let window else { return }
+        isRestoringPosition = true
+        savePosition()
+        layout = newLayout
+        let size = HUDPositionGeometry.size(for: newLayout)
+        window.setContentSize(size)
+        window.contentView?.frame = NSRect(origin: .zero, size: size)
+        window.contentView?.layer?.cornerRadius = min(size.width, size.height) / 2
+        isRestoringPosition = false
+        restorePosition()
+    }
 
     private func restorePosition() {
         guard let window else { return }
         isRestoringPosition = true
-        defer { isRestoringPosition = false }
-        if let data = defaults.data(forKey: "hudPositionV2"),
-           let position = try? JSONDecoder().decode(HUDPosition.self, from: data),
+        defer {
+            isRestoringPosition = false
+            savePosition()
+        }
+        if let position = positions.load(layout),
            let screen = screen(matching: position) {
-            let visible = screen.visibleFrame
-            let rangeX = max(0, visible.width - Self.size.width)
-            let rangeY = max(0, visible.height - Self.size.height)
-            let origin = NSPoint(
-                x: visible.minX + rangeX * min(1, max(0, position.relativeX)),
-                y: visible.minY + rangeY * min(1, max(0, position.relativeY))
-            )
-            window.setFrame(NSRect(origin: origin, size: Self.size), display: false)
+            let frame = HUDPositionGeometry.restoredFrame(for: layout, relativeX: position.relativeX, relativeY: position.relativeY, visible: screen.visibleFrame)
+            window.setFrame(frame, display: true)
             return
         }
-        if migrateLegacyFrame() { return }
-        positionAtTop(of: NSScreen.main ?? NSScreen.screens.first, save: true)
+        if layout == .horizontal, positions.load(.horizontal) == nil, migrateLegacyFrame() { return }
+        if let screen = NSScreen.main ?? NSScreen.screens.first {
+            window.setFrame(HUDPositionGeometry.defaultFrame(for: layout, visible: screen.visibleFrame), display: true)
+        }
     }
 
     private func migrateLegacyFrame() -> Bool {
         guard let saved = defaults.string(forKey: "hudFrame") else { return false }
         let frame = NSRectFromString(saved)
         guard frame.width > 0, frame.height > 0, let screen = bestScreen(for: frame) else { return false }
-        window?.setFrame(NSRect(origin: clampedOrigin(frame.origin, on: screen), size: Self.size), display: false)
+        let resized = NSRect(origin: frame.origin, size: HUDPositionGeometry.size(for: .horizontal))
+        window?.setFrame(HUDPositionGeometry.clamped(resized, to: screen.visibleFrame), display: true)
         defaults.removeObject(forKey: "hudFrame")
-        savePosition()
         return true
-    }
-
-    private func positionAtTop(of screen: NSScreen?, save: Bool) {
-        guard let screen, let window else { return }
-        let visible = screen.visibleFrame
-        window.setFrameOrigin(NSPoint(x: visible.midX - Self.size.width / 2, y: visible.maxY - Self.size.height - 12))
-        if save { savePosition() }
     }
 
     private func savePosition() {
         guard let frame = window?.frame, let screen = bestScreen(for: frame) else { return }
         let visible = screen.visibleFrame
         let pixels = pixelSize(of: screen)
-        let rangeX = max(1, visible.width - frame.width)
-        let rangeY = max(1, visible.height - frame.height)
-        let position = HUDPosition(
+        let relative = HUDPositionGeometry.relativePosition(of: frame, in: visible)
+        let position = HUDPositionRecord(
             version: 3,
             displayUUID: displayUUID(for: screen),
             legacyDisplayID: displayID(for: screen),
             displayName: screen.localizedName,
             pixelWidth: pixels.width,
             pixelHeight: pixels.height,
-            relativeX: min(1, max(0, (frame.minX - visible.minX) / rangeX)),
-            relativeY: min(1, max(0, (frame.minY - visible.minY) / rangeY))
+            relativeX: relative.x,
+            relativeY: relative.y
         )
-        if let data = try? JSONEncoder().encode(position) { defaults.set(data, forKey: "hudPositionV2") }
+        positions.save(position, for: layout)
     }
 
     private func bestScreen(for frame: NSRect) -> NSScreen? {
@@ -120,14 +122,6 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         return NSScreen.screens.max { lhs, rhs in
             lhs.visibleFrame.intersection(frame).area < rhs.visibleFrame.intersection(frame).area
         }
-    }
-
-    private func clampedOrigin(_ origin: NSPoint, on screen: NSScreen) -> NSPoint {
-        let visible = screen.visibleFrame
-        return NSPoint(
-            x: min(visible.maxX - Self.size.width, max(visible.minX, origin.x)),
-            y: min(visible.maxY - Self.size.height, max(visible.minY, origin.y))
-        )
     }
 
     private func displayID(for screen: NSScreen) -> UInt32? {
@@ -146,28 +140,21 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         )
     }
 
-    private func screen(matching position: HUDPosition) -> NSScreen? {
-        if let uuid = position.displayUUID,
-           let exact = NSScreen.screens.first(where: { displayUUID(for: $0) == uuid }) { return exact }
-        if let id = position.legacyDisplayID,
-           let legacy = NSScreen.screens.first(where: { displayID(for: $0) == id }) { return legacy }
-        if let name = position.displayName,
-           let width = position.pixelWidth,
-           let height = position.pixelHeight,
-           let matched = NSScreen.screens.first(where: {
-               let size = pixelSize(of: $0)
-               return $0.localizedName == name && size.width == width && size.height == height
-           }) { return matched }
-        if let name = position.displayName {
-            return NSScreen.screens.first(where: { $0.localizedName == name })
+    private func screen(matching position: HUDPositionRecord) -> NSScreen? {
+        let screens = NSScreen.screens
+        let identities = screens.map { screen in
+            let pixels = pixelSize(of: screen)
+            return HUDScreenIdentity(uuid: displayUUID(for: screen), displayID: displayID(for: screen),
+                                     name: screen.localizedName, pixelWidth: pixels.width, pixelHeight: pixels.height)
         }
-        return nil
+        guard let index = HUDPositionGeometry.matchingScreen(for: position, among: identities) else { return nil }
+        return screens[index]
     }
 
-    private static func makeGlassContent(model: AppModel) -> NSView {
+    private static func makeGlassContent(model: AppModel, size: NSSize) -> NSView {
         let container = NSView(frame: NSRect(origin: .zero, size: size))
         container.wantsLayer = true
-        container.layer?.cornerRadius = size.height / 2
+        container.layer?.cornerRadius = min(size.width, size.height) / 2
         container.layer?.masksToBounds = true
         let effect = NSVisualEffectView(frame: container.bounds)
         effect.autoresizingMask = [.width, .height]

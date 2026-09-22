@@ -26,9 +26,9 @@ final class HUDLightAnimationTests: XCTestCase {
         let middle = HUDLightAnimation.parameters(for: .running, isActive: true, referenceTime: 2.30 * 0.25, reduceMotion: false)
         let high = HUDLightAnimation.parameters(for: .running, isActive: true, referenceTime: 2.30 * 0.5, reduceMotion: false)
 
-        XCTAssertEqual(low.scale, 0.8, accuracy: 0.000_001)
+        XCTAssertEqual(low.scale, 0.9, accuracy: 0.000_001)
         XCTAssertEqual(middle.scale, 1.0, accuracy: 0.000_001)
-        XCTAssertEqual(high.scale, 1.2, accuracy: 0.000_001)
+        XCTAssertEqual(high.scale, 1.1, accuracy: 0.000_001)
         XCTAssertEqual(low.bodyOpacity, 0.18, accuracy: 0.000_001)
         XCTAssertEqual(high.bodyOpacity, 1, accuracy: 0.000_001)
         XCTAssertEqual(low.glowIntensity, 0, accuracy: 0.000_001)
@@ -40,7 +40,7 @@ final class HUDLightAnimationTests: XCTestCase {
 
         XCTAssertEqual(visual.bodyOpacity, 1)
         XCTAssertEqual(visual.glowIntensity, 1)
-        XCTAssertEqual(visual.scale, 0.8, accuracy: 0.000_001)
+        XCTAssertEqual(visual.scale, 0.9, accuracy: 0.000_001)
     }
 
     func testInactiveAndReduceMotionVisualsAreStatic() {

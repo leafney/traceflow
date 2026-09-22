@@ -32,7 +32,7 @@ public enum HUDLightAnimation {
         let bodyOpacity = state == .completed ? 1 : 0.18 + 0.82 * phase
         let glowIntensity = state == .completed ? 1 : phase
         return HUDLightVisualParameters(
-            scale: 0.8 + 0.4 * phase,
+            scale: 0.9 + 0.2 * phase,
             bodyOpacity: bodyOpacity,
             glowIntensity: glowIntensity,
             isTimelinePaused: false

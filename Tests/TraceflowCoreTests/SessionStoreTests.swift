@@ -6,7 +6,8 @@ final class SessionStoreTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = SessionStore(url: directory.appendingPathComponent("sessions.json"))
         let date = Date(timeIntervalSince1970: 123)
-        let session = PersistedSession(sessionID: "s1", projectPath: "/work/app", projectName: "app", codexThreadName: "修复登录问题", isIncludedInHUD: false, discoveredAt: date, lastUpdatedAt: date, rotationIndex: 4)
+        let sortDate = Date(timeIntervalSince1970: 456)
+        let session = PersistedSession(sessionID: "s1", projectPath: "/work/app", projectName: "app", codexThreadName: "修复登录问题", isIncludedInHUD: false, discoveredAt: date, lastUpdatedAt: date, settingsListSortAt: sortDate, rotationIndex: 4)
         try store.save([session])
         XCTAssertEqual(try store.load(), [session])
         let text = try String(contentsOf: directory.appendingPathComponent("sessions.json"))
@@ -27,7 +28,15 @@ final class SessionStoreTests: XCTestCase {
         let session = try XCTUnwrap(SessionStore(url: url).load().first)
 
         XCTAssertNil(session.codexThreadName)
+        XCTAssertNil(session.settingsListSortAt)
+        XCTAssertEqual(session.effectiveSettingsListSortAt, session.lastUpdatedAt)
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testNewSessionDefaultsToExcludedFromHUD() {
+        let date = Date(timeIntervalSince1970: 123)
+        let session = PersistedSession(sessionID: "s1", discoveredAt: date, lastUpdatedAt: date, rotationIndex: 0)
+        XCTAssertFalse(session.isIncludedInHUD)
     }
 
     func testCorruptFileIsNotOverwrittenOnLoad() throws {

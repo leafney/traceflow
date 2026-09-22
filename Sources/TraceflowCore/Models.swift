@@ -91,6 +91,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
     public var isIncludedInHUD: Bool
     public let discoveredAt: Date
     public var lastUpdatedAt: Date
+    public var settingsListSortAt: Date?
     public let rotationIndex: Int
 
     public init(
@@ -99,9 +100,10 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
         projectPath: String? = nil,
         projectName: String? = nil,
         codexThreadName: String? = nil,
-        isIncludedInHUD: Bool = true,
+        isIncludedInHUD: Bool = false,
         discoveredAt: Date,
         lastUpdatedAt: Date,
+        settingsListSortAt: Date? = nil,
         rotationIndex: Int
     ) {
         self.sessionID = sessionID
@@ -112,7 +114,12 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
         self.isIncludedInHUD = isIncludedInHUD
         self.discoveredAt = discoveredAt
         self.lastUpdatedAt = lastUpdatedAt
+        self.settingsListSortAt = settingsListSortAt
         self.rotationIndex = rotationIndex
+    }
+
+    public var effectiveSettingsListSortAt: Date {
+        settingsListSortAt ?? lastUpdatedAt
     }
 }
 

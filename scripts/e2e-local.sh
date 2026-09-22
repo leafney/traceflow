@@ -50,6 +50,7 @@ attempt=0
 while [ ! -f "$log" ] && [ "$attempt" -lt 50 ]; do /bin/sleep 0.1; attempt=$((attempt + 1)); done
 [ -f "$log" ]
 /usr/bin/grep -q 'event=UserPromptSubmit state=idle->running' "$log"
+/usr/bin/grep -q 'event=UserPromptSubmit state=idle->running project="traceflow-demo" session_id="e2e-session" title="traceflow-demo · 实现本地闭环"' "$log"
 /usr/bin/grep -q 'event=PermissionRequest state=running->attention' "$log"
 /usr/bin/grep -q 'event=Stop state=attention->completed' "$log"
 /usr/bin/grep -q 'event=SessionEnd state=completed->idle' "$log"

@@ -59,7 +59,9 @@ struct SettingsView: View {
             }
             Section("诊断") {
                 Button("打开日志目录") { model.openLogsDirectory() }
-                Button("清除日志", role: .destructive) { model.clearLogs() }
+                Button("清除日志", role: .destructive) {
+                    confirmation = DestructiveConfirmation(kind: .clearLogs)
+                }
             }
         }
         .formStyle(.grouped).padding().frame(minWidth: 680, minHeight: 600)
@@ -77,6 +79,13 @@ struct SettingsView: View {
                     title: Text("清空全部会话记录？"),
                     message: Text("将删除 Traceflow 保存的全部本地会话记录和 HUD 选择，不会删除 Codex 中的原始对话。"),
                     primaryButton: .destructive(Text("清空全部")) { model.clearSessions() },
+                    secondaryButton: .cancel(Text("取消"))
+                )
+            case .clearLogs:
+                Alert(
+                    title: Text("清除全部日志？"),
+                    message: Text("将永久删除 Traceflow 的当前日志和历史轮转日志，不会删除会话记录、HUD 设置或 Codex 原始对话。"),
+                    primaryButton: .destructive(Text("清除日志")) { model.clearLogs() },
                     secondaryButton: .cancel(Text("取消"))
                 )
             }
@@ -216,5 +225,6 @@ private struct DestructiveConfirmation: Identifiable {
     enum Kind {
         case deleteSession(id: String, title: String)
         case clearAll
+        case clearLogs
     }
 }

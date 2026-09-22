@@ -297,6 +297,7 @@ final class AppModel: ObservableObject {
         guard result.accepted else { logger.log("event=discarded reason=\(String(describing: result.rejection))"); return }
         localCommunicationHealth = LocalCommunicationHealth(state: .healthy, detail: "最近成功收到 Hook 事件")
         machines[id] = machine
+        let snapshot = machine.snapshot
         publishSessions()
         let membershipDecision = scheduler.updateSessions(sessions, now: Date(), updateExistingStates: false)
         let eventDecision = scheduler.reportStateChange(sessionID: id, newState: machine.snapshot.state, stateChanged: result.stateChanged, now: Date())
@@ -305,7 +306,14 @@ final class AppModel: ObservableObject {
         refreshHooksHealth()
         if let decision = eventDecision ?? membershipDecision { applyDisplayDecision(decision) }
         else if displayedSession?.id == id { updateDisplay(id) }
-        logger.log("event=\(envelope.payload.eventName.rawValue) state=\(result.oldState.rawValue)->\(result.newState.rawValue)")
+        logger.log(SessionEventLogFormatter.stateTransition(
+            event: envelope.payload.eventName,
+            oldState: result.oldState,
+            newState: result.newState,
+            projectName: snapshot.persisted.projectName ?? "",
+            sessionID: snapshot.id,
+            title: snapshot.displayTitle
+        ))
     }
 
     private func makeMachine(for envelope: HookEnvelope) -> SessionStateMachine {

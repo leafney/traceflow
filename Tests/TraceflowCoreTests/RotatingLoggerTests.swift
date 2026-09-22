@@ -10,8 +10,10 @@ final class RotatingLoggerTests: XCTestCase {
         let files = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasPrefix("traceflow.log") }
         XCTAssertLessThanOrEqual(files.count, 3)
         XCTAssertGreaterThan(files.count, 1)
+        let unrelated = directory.appendingPathComponent("keep.txt")
+        try Data("保留".utf8).write(to: unrelated)
         logger.clear()
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).count, 0)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), ["keep.txt"])
         try? FileManager.default.removeItem(at: directory)
     }
 }

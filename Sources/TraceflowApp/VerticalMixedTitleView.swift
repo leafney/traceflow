@@ -16,6 +16,9 @@ struct VerticalMixedTitleView: NSViewRepresentable {
 }
 
 final class MixedTitleNSView: NSView {
+    private let truncationDotDiameter: CGFloat = 2.4
+    private let truncationDotSpacing: CGFloat = 1.8
+
     var title: String {
         didSet {
             guard title != oldValue else { return }
@@ -49,7 +52,7 @@ final class MixedTitleNSView: NSView {
             : VerticalTitleParser.segments(for: title)
         let scale = window?.backingScaleFactor ?? 2
         let contentLength = max(0, bounds.height - 12)
-        let ellipsisAdvance = hanAdvance(font: font, scale: scale)
+        let ellipsisAdvance = truncationMarkerAdvance
         let layout = VerticalTitleMeasurer.layout(
             segments: segments,
             maximumLength: contentLength,
@@ -77,9 +80,9 @@ final class MixedTitleNSView: NSView {
             cursor = align(cursor + length, scale: scale)
         }
         if layout.showsEllipsis {
-            // The title lane runs vertically, so its truncation marker must use
-            // vertically stacked dots rather than the horizontal ellipsis glyph.
-            drawUpright("⋮", centerX: center, top: bounds.height - 6 - ellipsisAdvance, font: font, context: context, scale: scale)
+            // Keep the marker attached to the final visible segment. Reserving
+            // its height during measurement guarantees it remains in bounds.
+            drawVerticalEllipsis(centerX: center, top: max(6, cursor - 1), context: context, scale: scale)
         }
     }
 
@@ -101,6 +104,20 @@ final class MixedTitleNSView: NSView {
 
     private func hanAdvance(font: NSFont, scale: CGFloat) -> CGFloat {
         ceil((font.ascender - font.descender + font.leading) * scale) / scale
+    }
+
+    private var truncationMarkerAdvance: CGFloat {
+        truncationDotDiameter * 3 + truncationDotSpacing * 2
+    }
+
+    private func drawVerticalEllipsis(centerX: CGFloat, top: CGFloat, context: CGContext, scale: CGFloat) {
+        let diameter = align(truncationDotDiameter, scale: scale)
+        let spacing = align(truncationDotSpacing, scale: scale)
+        let originX = align(centerX - diameter / 2, scale: scale)
+        for index in 0..<3 {
+            let originY = align(top + CGFloat(index) * (diameter + spacing), scale: scale)
+            context.fillEllipse(in: CGRect(x: originX, y: originY, width: diameter, height: diameter))
+        }
     }
 
     private func lineWidth(_ text: String, font: NSFont) -> CGFloat {

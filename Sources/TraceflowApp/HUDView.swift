@@ -46,9 +46,7 @@ struct HUDView: View {
             icon.frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength)
             verticalSeparator
             ZStack {
-                title
-                    .frame(width: HUDMetrics.titleTextLength, height: 20, alignment: .leading)
-                    .rotationEffect(.degrees(90))
+                VerticalMixedTitleView(title: model.displayedSession?.displayTitle ?? "Traceflow")
                     .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
                     .id(model.displayedSession?.id ?? "placeholder")
                     .transition(titleTransition(vertical: true))

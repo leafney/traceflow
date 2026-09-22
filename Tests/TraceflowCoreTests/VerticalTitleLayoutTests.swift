@@ -69,4 +69,16 @@ final class VerticalTitleLayoutTests: XCTestCase {
             VerticalTitleLayout(visibleSegments: [.latin("abcd")], showsEllipsis: true)
         )
     }
+
+    func testCrossAxisOverflowTruncatesAndShowsEllipsis() {
+        let result = VerticalTitleMeasurer.layout(
+            segments: [.han("中"), .han("文")],
+            maximumLength: 30,
+            ellipsisAdvance: 10,
+            advance: { _ in 10 },
+            fitsCrossAxis: { segment in segment != .han("文") }
+        )
+
+        XCTAssertEqual(result, VerticalTitleLayout(visibleSegments: [.han("中")], showsEllipsis: true))
+    }
 }

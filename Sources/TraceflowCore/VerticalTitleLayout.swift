@@ -139,15 +139,20 @@ public enum VerticalTitleMeasurer {
         segments: [VerticalTitleSegment],
         maximumLength: Double,
         ellipsisAdvance: Double,
-        advance: (VerticalTitleSegment) -> Double
+        advance: (VerticalTitleSegment) -> Double,
+        fitsCrossAxis: (VerticalTitleSegment) -> Bool = { _ in true }
     ) -> VerticalTitleLayout {
         let total = segments.reduce(0) { $0 + advance($1) }
-        guard total > maximumLength else { return VerticalTitleLayout(visibleSegments: segments, showsEllipsis: false) }
+        let hasCrossAxisOverflow = segments.contains { !fitsCrossAxis($0) }
+        guard total > maximumLength || hasCrossAxisOverflow else {
+            return VerticalTitleLayout(visibleSegments: segments, showsEllipsis: false)
+        }
 
         let budget = max(0, maximumLength - ellipsisAdvance)
         var visible: [VerticalTitleSegment] = []
         var used = 0.0
         for segment in segments {
+            guard fitsCrossAxis(segment) else { break }
             let length = advance(segment)
             if used + length <= budget {
                 visible.append(segment)

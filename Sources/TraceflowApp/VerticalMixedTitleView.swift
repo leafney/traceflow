@@ -54,7 +54,11 @@ final class MixedTitleNSView: NSView {
             segments: segments,
             maximumLength: contentLength,
             ellipsisAdvance: ellipsisAdvance,
-            advance: { [weak self] segment in self?.advance(for: segment, font: font, scale: scale) ?? 0 }
+            advance: { [weak self] segment in self?.advance(for: segment, font: font, scale: scale) ?? 0 },
+            fitsCrossAxis: { [weak self] segment in
+                guard let self else { return false }
+                return self.crossAxisExtent(for: segment, font: font) <= self.bounds.width
+            }
         )
 
         var cursor = align(6, scale: scale)
@@ -73,7 +77,9 @@ final class MixedTitleNSView: NSView {
             cursor = align(cursor + length, scale: scale)
         }
         if layout.showsEllipsis {
-            drawUpright("…", centerX: center, top: bounds.height - 6 - ellipsisAdvance, font: font, context: context, scale: scale)
+            // The title lane runs vertically, so its truncation marker must use
+            // vertically stacked dots rather than the horizontal ellipsis glyph.
+            drawUpright("⋮", centerX: center, top: bounds.height - 6 - ellipsisAdvance, font: font, context: context, scale: scale)
         }
     }
 
@@ -100,6 +106,20 @@ final class MixedTitleNSView: NSView {
     private func lineWidth(_ text: String, font: NSFont) -> CGFloat {
         let attributes: [NSAttributedString.Key: Any] = [.font: font]
         return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes)), nil, nil, nil))
+    }
+
+    /// Returns the occupied width after the segment is placed in the 40-point
+    /// vertical title lane. Latin text is rotated, so its glyph height becomes
+    /// its cross-axis extent.
+    private func crossAxisExtent(for segment: VerticalTitleSegment, font: NSFont) -> CGFloat {
+        switch segment {
+        case .gap:
+            return 0
+        case let .han(character):
+            return CGFloat(CTLineGetTypographicBounds(line(String(character), font: font), nil, nil, nil))
+        case let .latin(text):
+            return CTLineGetBoundsWithOptions(line(text, font: font), .useGlyphPathBounds).height
+        }
     }
 
     private func drawUpright(_ text: String, centerX: CGFloat, top: CGFloat, font: NSFont, context: CGContext, scale: CGFloat) {

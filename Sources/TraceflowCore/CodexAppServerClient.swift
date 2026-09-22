@@ -87,6 +87,9 @@ public enum CodexThreadImporter {
                 existing.projectName = TitleBuilder.projectName(from: thread.cwd)
                 existing.codexThreadName = threadName
                 existing.lastUpdatedAt = max(existing.lastUpdatedAt, thread.updatedAt)
+                if existing.settingsListSortAt == nil {
+                    existing.settingsListSortAt = thread.updatedAt
+                }
                 sessionsByID[thread.id] = existing
                 updatedCount += 1
             } else {
@@ -95,8 +98,10 @@ public enum CodexThreadImporter {
                     projectPath: thread.cwd,
                     projectName: TitleBuilder.projectName(from: thread.cwd),
                     codexThreadName: threadName,
+                    isIncludedInHUD: false,
                     discoveredAt: thread.createdAt,
                     lastUpdatedAt: thread.updatedAt,
+                    settingsListSortAt: thread.updatedAt,
                     rotationIndex: nextIndex
                 )
                 nextIndex += 1

@@ -69,7 +69,34 @@ final class CodexAppServerClientTests: XCTestCase {
         XCTAssertEqual(result.sessions.first?.sessionID, "existing")
         XCTAssertEqual(result.sessions.first?.isIncludedInHUD, false)
         XCTAssertEqual(result.sessions.first?.codexThreadName, "更新后的名称")
+        XCTAssertEqual(result.sessions.first?.settingsListSortAt, Date(timeIntervalSince1970: 30))
         XCTAssertEqual(result.sessions.last?.projectName, "new-project")
-        XCTAssertEqual(result.sessions.last?.isIncludedInHUD, true)
+        XCTAssertEqual(result.sessions.last?.isIncludedInHUD, false)
+        XCTAssertEqual(result.sessions.last?.settingsListSortAt, Date(timeIntervalSince1970: 50))
+    }
+
+    func testRepeatedImportPreservesSelectionAndExistingSortDate() {
+        let originalSortDate = Date(timeIntervalSince1970: 15)
+        let existing = PersistedSession(
+            sessionID: "existing",
+            isIncludedInHUD: true,
+            discoveredAt: Date(timeIntervalSince1970: 10),
+            lastUpdatedAt: Date(timeIntervalSince1970: 20),
+            settingsListSortAt: originalSortDate,
+            rotationIndex: 0
+        )
+        let thread = CodexThreadSummary(
+            id: "existing",
+            name: "名称",
+            cwd: "/work/app",
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let result = CodexThreadImporter.merge([thread], into: [existing], nextRotationIndex: 1)
+
+        XCTAssertEqual(result.sessions.first?.isIncludedInHUD, true)
+        XCTAssertEqual(result.sessions.first?.settingsListSortAt, originalSortDate)
+        XCTAssertEqual(result.sessions.first?.lastUpdatedAt, Date(timeIntervalSince1970: 100))
     }
 }

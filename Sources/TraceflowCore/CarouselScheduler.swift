@@ -3,9 +3,12 @@ import Foundation
 public enum CarouselSwitchReason: Sendable, Equatable {
     case initial
     case redPreemption
+    case yellowPreemption
     case redQueue
-    case eventQueue
+    case yellowQueue
+    case greenQueue
     case rotation
+    case stateChanged
     case selectionChanged
     case placeholder
 }
@@ -14,13 +17,15 @@ public struct CarouselDecision: Sendable, Equatable {
     public let sessionID: String?
     public let reason: CarouselSwitchReason
     public let animated: Bool
+    public let previousSessionID: String?
     public let cycle: PresentationCycle?
 
-    public init(sessionID: String?, reason: CarouselSwitchReason, animated: Bool, cycle: PresentationCycle? = nil) {
+    public init(sessionID: String?, reason: CarouselSwitchReason, animated: Bool, cycle: PresentationCycle? = nil, previousSessionID: String? = nil) {
         self.sessionID = sessionID
         self.reason = reason
         self.animated = animated
         self.cycle = cycle
+        self.previousSessionID = previousSessionID
     }
 }
 
@@ -31,7 +36,8 @@ public struct CarouselScheduler: Sendable {
     private var timingConfiguration = CarouselTimingConfiguration()
     private var generation: UInt64 = 0
     private var redQueue: [String] = []
-    private var eventQueue: [String] = []
+    private var yellowQueue: [String] = []
+    private var greenQueue: [String] = []
     private var states: [String: SessionRuntimeState] = [:]
     private var rotationOrder: [String] = []
     private var included: Set<String> = []
@@ -47,8 +53,10 @@ public struct CarouselScheduler: Sendable {
     public mutating func updateSessions(
         _ sessions: [SessionSnapshot],
         now: Date,
-        updateExistingStates: Bool = true
+        updateExistingStates: Bool = true,
+        processNewlyIncluded: Bool = true
     ) -> CarouselDecision? {
+        let previousIncluded = included
         rotationOrder = sessions.sorted { $0.persisted.rotationIndex < $1.persisted.rotationIndex }.map(\.id)
         included = Set(sessions.lazy.filter { $0.persisted.isIncludedInHUD }.map(\.id))
         let sessionIDs = Set(sessions.map(\.id))
@@ -56,7 +64,19 @@ public struct CarouselScheduler: Sendable {
         for session in sessions where updateExistingStates || states[session.id] == nil {
             states[session.id] = session.state
         }
-        return reconcile(now: now, reason: .selectionChanged)
+        var decision: CarouselDecision?
+        if processNewlyIncluded && !previousIncluded.isEmpty {
+            let newlyIncluded = rotationOrder.filter { included.contains($0) && !previousIncluded.contains($0) && states[$0] != .idle }
+            let ordered = newlyIncluded.sorted {
+                let left = priority(states[$0] ?? .idle), right = priority(states[$1] ?? .idle)
+                if left != right { return left > right }
+                return (rotationOrder.firstIndex(of: $0) ?? 0) < (rotationOrder.firstIndex(of: $1) ?? 0)
+            }
+            for id in ordered {
+                if let result = queueOrPreempt(id, now: now, allowPreemption: decision == nil && (currentSessionID == nil || eligibleIDs.contains(currentSessionID!))) { decision = result }
+            }
+        }
+        return decision ?? reconcile(now: now, reason: .selectionChanged)
     }
 
     public mutating func reportStateChange(
@@ -66,65 +86,27 @@ public struct CarouselScheduler: Sendable {
         now: Date
     ) -> CarouselDecision? {
         states[sessionID] = newState
-        pruneQueues()
-        guard included.contains(sessionID), stateChanged else { return nil }
-
-        if newState == .idle {
-            remove(sessionID, from: &redQueue)
-            remove(sessionID, from: &eventQueue)
-            guard currentSessionID == sessionID else { return nil }
-            return reconcile(now: now, reason: .selectionChanged)
-        }
-
+        guard stateChanged else { return nil }
+        removeFromQueues(sessionID)
+        guard included.contains(sessionID) else { return nil }
         if currentSessionID == sessionID {
-            remove(sessionID, from: &redQueue)
-            remove(sessionID, from: &eventQueue)
-            if stateChanged { beginCycle(sessionID, state: newState, now: now, animated: false) }
-            return nil
+            if newState == .idle { return reconcile(now: now, reason: .selectionChanged) }
+            pruneQueues()
+            if let higher = highestQueuedPriority(), higher > priority(newState) {
+                append(sessionID, state: newState)
+                return selectQueuedOrRotated(now: now, fallbackReason: .stateChanged)
+            }
+            beginCycle(sessionID, state: newState, now: now, animated: false)
+            return CarouselDecision(sessionID: sessionID, reason: .stateChanged, animated: false, cycle: currentCycle, previousSessionID: sessionID)
         }
-
-        switch newState {
-        case .attention:
-            remove(sessionID, from: &eventQueue)
-            guard let currentSessionID else {
-                return select(sessionID, now: now, reason: .initial, animated: false)
-            }
-            if states[currentSessionID] != .attention {
-                return select(sessionID, now: now, reason: .redPreemption, animated: true)
-            }
-            appendUnique(sessionID, to: &redQueue)
-            return nil
-
-        case .running, .completed:
-            remove(sessionID, from: &redQueue)
-            guard currentSessionID != nil else {
-                return select(sessionID, now: now, reason: .initial, animated: false)
-            }
-            appendUnique(sessionID, to: &eventQueue)
-            return nil
-
-        case .idle:
-            return nil
-        }
+        guard newState != .idle else { return nil }
+        return queueOrPreempt(sessionID, now: now)
     }
 
     public mutating func advance(now: Date) -> CarouselDecision? {
         guard eligibleIDs.count > 1, let currentCycle,
               now >= currentCycle.deadline else { return nil }
-        pruneQueues()
-        if let next = dequeueValidRed() {
-            return select(next, now: now, reason: .redQueue, animated: true)
-        }
-        if let next = dequeueValidEvent() {
-            return select(next, now: now, reason: .eventQueue, animated: true)
-        }
-        guard let next = nextInRotation() else { return nil }
-        return select(next, now: now, reason: .rotation, animated: next != currentSessionID)
-    }
-
-    @available(*, deprecated, message: "Use updateTimingConfiguration and advance(now:)")
-    public mutating func advance(now: Date, displayDuration: TimeInterval) -> CarouselDecision? {
-        advance(now: now)
+        return selectQueuedOrRotated(now: now, fallbackReason: .rotation)
     }
 
     private var eligibleIDs: Set<String> {
@@ -138,17 +120,19 @@ public struct CarouselScheduler: Sendable {
         let eligible = eligibleIDs
         guard !eligible.isEmpty else {
             guard currentSessionID != nil || !hasPresentedPlaceholder else { return nil }
+            let previous = currentSessionID
             currentSessionID = nil
             displayedSince = now
             currentCycle = nil
             hasPresentedPlaceholder = true
-            return CarouselDecision(sessionID: nil, reason: .placeholder, animated: false)
+            return CarouselDecision(sessionID: nil, reason: .placeholder, animated: false, previousSessionID: previous)
         }
         if let currentSessionID, eligible.contains(currentSessionID) { return nil }
 
         let previous = currentSessionID
         let next = dequeueValidRed()
-            ?? dequeueValidEvent()
+            ?? dequeueValidYellow()
+            ?? dequeueValidGreen()
             ?? rotationOrder.first(where: eligible.contains)
         guard let next else { return nil }
         return select(
@@ -165,13 +149,13 @@ public struct CarouselScheduler: Sendable {
         reason: CarouselSwitchReason,
         animated: Bool
     ) -> CarouselDecision {
-        remove(sessionID, from: &redQueue)
-        remove(sessionID, from: &eventQueue)
+        let previous = currentSessionID
+        removeFromQueues(sessionID)
         currentSessionID = sessionID
         displayedSince = now
         hasPresentedPlaceholder = false
         beginCycle(sessionID, state: states[sessionID] ?? .idle, now: now, animated: animated)
-        return CarouselDecision(sessionID: sessionID, reason: reason, animated: animated, cycle: currentCycle)
+        return CarouselDecision(sessionID: sessionID, reason: reason, animated: animated, cycle: currentCycle, previousSessionID: previous)
     }
 
     private mutating func beginCycle(_ sessionID: String, state: SessionRuntimeState, now: Date, animated: Bool) {
@@ -194,7 +178,7 @@ public struct CarouselScheduler: Sendable {
         guard !available.isEmpty else { return nil }
         guard let currentSessionID,
               let index = available.firstIndex(of: currentSessionID) else { return available[0] }
-        return available[(index + 1) % available.count]
+        return available.count > 1 ? available[(index + 1) % available.count] : nil
     }
 
     private mutating func pruneQueues() {
@@ -202,13 +186,8 @@ public struct CarouselScheduler: Sendable {
         redQueue.removeAll { id in
             id == currentSessionID || !eligible.contains(id) || states[id] != .attention
         }
-        eventQueue.removeAll { id in
-            guard id != currentSessionID,
-                  eligible.contains(id),
-                  let state = states[id] else { return true }
-            return state != .running && state != .completed
-        }
-        for id in redQueue { remove(id, from: &eventQueue) }
+        yellowQueue.removeAll { $0 == currentSessionID || !eligible.contains($0) || states[$0] != .completed }
+        greenQueue.removeAll { $0 == currentSessionID || !eligible.contains($0) || states[$0] != .running }
     }
 
     private mutating func dequeueValidRed() -> String? {
@@ -223,20 +202,76 @@ public struct CarouselScheduler: Sendable {
         return nil
     }
 
-    private mutating func dequeueValidEvent() -> String? {
-        while !eventQueue.isEmpty {
-            let candidate = eventQueue.removeFirst()
-            if candidate != currentSessionID,
-               eligibleIDs.contains(candidate),
-               let state = states[candidate], state == .running || state == .completed {
-                return candidate
-            }
+    private mutating func dequeueValidYellow() -> String? {
+        while !yellowQueue.isEmpty {
+            let candidate = yellowQueue.removeFirst()
+            if candidate != currentSessionID, eligibleIDs.contains(candidate), states[candidate] == .completed { return candidate }
         }
         return nil
     }
 
-    private func appendUnique(_ sessionID: String, to queue: inout [String]) {
-        if !queue.contains(sessionID) { queue.append(sessionID) }
+    private mutating func dequeueValidGreen() -> String? {
+        while !greenQueue.isEmpty {
+            let candidate = greenQueue.removeFirst()
+            if candidate != currentSessionID, eligibleIDs.contains(candidate), states[candidate] == .running { return candidate }
+        }
+        return nil
+    }
+
+    private mutating func selectQueuedOrRotated(now: Date, fallbackReason: CarouselSwitchReason) -> CarouselDecision? {
+        pruneQueues()
+        if let next = dequeueValidRed() { return select(next, now: now, reason: fallbackReason == .rotation ? .redQueue : fallbackReason, animated: next != currentSessionID) }
+        if let next = dequeueValidYellow() { return select(next, now: now, reason: fallbackReason == .rotation ? .yellowQueue : fallbackReason, animated: next != currentSessionID) }
+        if let next = dequeueValidGreen() { return select(next, now: now, reason: fallbackReason == .rotation ? .greenQueue : fallbackReason, animated: next != currentSessionID) }
+        guard let next = nextInRotation() else { return nil }
+        return select(next, now: now, reason: fallbackReason, animated: next != currentSessionID)
+    }
+
+    private mutating func queueOrPreempt(_ id: String, now: Date, allowPreemption: Bool = true) -> CarouselDecision? {
+        guard let state = states[id], state != .idle, included.contains(id), id != currentSessionID else { return nil }
+        if currentSessionID == nil {
+            return allowPreemption ? select(id, now: now, reason: .initial, animated: false) : nil
+        }
+        if allowPreemption, let current = currentSessionID, priority(state) > priority(states[current] ?? .idle) {
+            if let previousState = states[current], previousState != .idle, eligibleIDs.contains(current) {
+                append(current, state: previousState)
+            }
+            return select(id, now: now, reason: state == .attention ? .redPreemption : .yellowPreemption, animated: true)
+        }
+        append(id, state: state)
+        return nil
+    }
+
+    private mutating func append(_ id: String, state: SessionRuntimeState) {
+        removeFromQueues(id)
+        switch state {
+        case .attention: redQueue.append(id)
+        case .completed: yellowQueue.append(id)
+        case .running: greenQueue.append(id)
+        case .idle: break
+        }
+    }
+
+    private mutating func removeFromQueues(_ id: String) {
+        remove(id, from: &redQueue)
+        remove(id, from: &yellowQueue)
+        remove(id, from: &greenQueue)
+    }
+
+    private func highestQueuedPriority() -> Int? {
+        if !redQueue.isEmpty { return 3 }
+        if !yellowQueue.isEmpty { return 2 }
+        if !greenQueue.isEmpty { return 1 }
+        return nil
+    }
+
+    private func priority(_ state: SessionRuntimeState) -> Int {
+        switch state {
+        case .idle: 0
+        case .running: 1
+        case .completed: 2
+        case .attention: 3
+        }
     }
 
     private func remove(_ sessionID: String, from queue: inout [String]) {

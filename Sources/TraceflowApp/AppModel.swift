@@ -312,7 +312,7 @@ final class AppModel: ObservableObject {
         machines[id] = machine
         let snapshot = machine.snapshot
         publishSessions()
-        let membershipDecision = scheduler.updateSessions(sessions, now: Date(), updateExistingStates: false)
+        let membershipDecision = scheduler.updateSessions(sessions, now: Date(), updateExistingStates: false, processNewlyIncluded: false)
         let eventDecision = scheduler.reportStateChange(sessionID: id, newState: machine.snapshot.state, stateChanged: result.stateChanged, now: Date())
         persistSessions()
         defaults.set(Date(), forKey: "lastHookEvent")

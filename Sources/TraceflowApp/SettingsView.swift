@@ -13,7 +13,16 @@ struct SettingsView: View {
                     Text("横向").tag(HUDLayoutMode.horizontal)
                     Text("纵向").tag(HUDLayoutMode.vertical)
                 }
-                Picker("轮播间隔", selection: $model.displayDuration) { Text("3 秒").tag(3.0); Text("5 秒").tag(5.0); Text("10 秒").tag(10.0) }
+                Picker("展示时长", selection: $model.timingMode) {
+                    Text("统一时长").tag(CarouselTimingMode.uniform)
+                    Text("按状态分配").tag(CarouselTimingMode.byState)
+                }
+                .pickerStyle(.segmented)
+                if model.timingMode == .uniform {
+                    Picker("轮播间隔", selection: $model.displayDuration) { Text("3 秒").tag(3.0); Text("5 秒").tag(5.0); Text("10 秒").tag(10.0) }
+                } else {
+                    LabeledContent("轮播间隔") { Text("红 6 秒 · 黄 4 秒 · 绿 2 秒").foregroundStyle(.secondary) }
+                }
                 Picker("光晕效果", selection: $model.hudGlowMode) {
                     Text("标准").tag(HUDGlowMode.standard)
                     Text("强烈").tag(HUDGlowMode.strong)

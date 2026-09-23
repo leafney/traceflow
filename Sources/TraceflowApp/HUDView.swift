@@ -89,8 +89,8 @@ struct HUDView: View {
 
     @ViewBuilder private var lights: some View {
         StatusLight(kind: .attention, active: model.displayedSession?.state == .attention, glow: model.hudGlowMode, reduceMotion: reduceMotion)
-        StatusLight(kind: .running, active: model.displayedSession?.state == .running, glow: model.hudGlowMode, reduceMotion: reduceMotion)
         StatusLight(kind: .completed, active: model.displayedSession?.state == .completed, glow: model.hudGlowMode, reduceMotion: reduceMotion)
+        StatusLight(kind: .running, active: model.displayedSession?.state == .running, glow: model.hudGlowMode, reduceMotion: reduceMotion)
     }
 
     private func titleTransition(vertical: Bool) -> AnyTransition {
@@ -140,8 +140,8 @@ private enum StatusLightKind {
     var color: Color {
         switch self {
         case .attention: .red
-        case .running: .yellow
-        case .completed: .green
+        case .running: .green
+        case .completed: .yellow
         }
     }
 

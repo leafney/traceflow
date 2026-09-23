@@ -14,17 +14,22 @@ public struct CarouselDecision: Sendable, Equatable {
     public let sessionID: String?
     public let reason: CarouselSwitchReason
     public let animated: Bool
+    public let cycle: PresentationCycle?
 
-    public init(sessionID: String?, reason: CarouselSwitchReason, animated: Bool) {
+    public init(sessionID: String?, reason: CarouselSwitchReason, animated: Bool, cycle: PresentationCycle? = nil) {
         self.sessionID = sessionID
         self.reason = reason
         self.animated = animated
+        self.cycle = cycle
     }
 }
 
 public struct CarouselScheduler: Sendable {
     public private(set) var currentSessionID: String?
     public private(set) var displayedSince: Date?
+    public private(set) var currentCycle: PresentationCycle?
+    private var timingConfiguration = CarouselTimingConfiguration()
+    private var generation: UInt64 = 0
     private var redQueue: [String] = []
     private var eventQueue: [String] = []
     private var states: [String: SessionRuntimeState] = [:]
@@ -33,6 +38,10 @@ public struct CarouselScheduler: Sendable {
     private var hasPresentedPlaceholder = false
 
     public init() {}
+
+    public mutating func updateTimingConfiguration(_ configuration: CarouselTimingConfiguration) {
+        timingConfiguration = configuration
+    }
 
     @discardableResult
     public mutating func updateSessions(
@@ -70,7 +79,7 @@ public struct CarouselScheduler: Sendable {
         if currentSessionID == sessionID {
             remove(sessionID, from: &redQueue)
             remove(sessionID, from: &eventQueue)
-            if newState == .attention { displayedSince = now }
+            if stateChanged { beginCycle(sessionID, state: newState, now: now, animated: false) }
             return nil
         }
 
@@ -99,9 +108,9 @@ public struct CarouselScheduler: Sendable {
         }
     }
 
-    public mutating func advance(now: Date, displayDuration: TimeInterval) -> CarouselDecision? {
-        guard eligibleIDs.count > 1, let displayedSince,
-              now.timeIntervalSince(displayedSince) >= displayDuration else { return nil }
+    public mutating func advance(now: Date) -> CarouselDecision? {
+        guard eligibleIDs.count > 1, let currentCycle,
+              now >= currentCycle.deadline else { return nil }
         pruneQueues()
         if let next = dequeueValidRed() {
             return select(next, now: now, reason: .redQueue, animated: true)
@@ -111,6 +120,11 @@ public struct CarouselScheduler: Sendable {
         }
         guard let next = nextInRotation() else { return nil }
         return select(next, now: now, reason: .rotation, animated: next != currentSessionID)
+    }
+
+    @available(*, deprecated, message: "Use updateTimingConfiguration and advance(now:)")
+    public mutating func advance(now: Date, displayDuration: TimeInterval) -> CarouselDecision? {
+        advance(now: now)
     }
 
     private var eligibleIDs: Set<String> {
@@ -126,6 +140,7 @@ public struct CarouselScheduler: Sendable {
             guard currentSessionID != nil || !hasPresentedPlaceholder else { return nil }
             currentSessionID = nil
             displayedSince = now
+            currentCycle = nil
             hasPresentedPlaceholder = true
             return CarouselDecision(sessionID: nil, reason: .placeholder, animated: false)
         }
@@ -155,7 +170,23 @@ public struct CarouselScheduler: Sendable {
         currentSessionID = sessionID
         displayedSince = now
         hasPresentedPlaceholder = false
-        return CarouselDecision(sessionID: sessionID, reason: reason, animated: animated)
+        beginCycle(sessionID, state: states[sessionID] ?? .idle, now: now, animated: animated)
+        return CarouselDecision(sessionID: sessionID, reason: reason, animated: animated, cycle: currentCycle)
+    }
+
+    private mutating func beginCycle(_ sessionID: String, state: SessionRuntimeState, now: Date, animated: Bool) {
+        guard let duration = timingConfiguration.duration(for: state) else { currentCycle = nil; return }
+        generation &+= 1
+        let visibleFrom = now.addingTimeInterval(animated ? HUDTitleTransition.maximumDuration : 0)
+        currentCycle = PresentationCycle(
+            sessionID: sessionID,
+            runtimeState: state,
+            timingModeSnapshot: timingConfiguration.mode,
+            durationSnapshot: duration,
+            visibleFrom: visibleFrom,
+            deadline: visibleFrom.addingTimeInterval(duration),
+            generation: generation
+        )
     }
 
     private mutating func nextInRotation() -> String? {

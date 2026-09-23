@@ -112,7 +112,7 @@ struct HUDView: View {
         case .none: nil
         // A short decelerating transition feels responsive and remains smooth
         // when SwiftUI interrupts it for a newer carousel decision.
-        case .slide: .easeOut(duration: 0.20)
+        case .slide: .easeOut(duration: HUDTitleTransition.maximumDuration)
         case .fade: .easeInOut(duration: 0.15)
         }
     }

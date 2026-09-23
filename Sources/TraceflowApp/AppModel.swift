@@ -20,7 +20,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var isRebuildingSessions = false
     @Published var sessionSyncMessage: String?
     @Published var isHUDVisible: Bool { didSet { defaults.set(isHUDVisible, forKey: "hudVisible") } }
-    @Published var displayDuration: Double { didSet { defaults.set(displayDuration, forKey: "displayDuration") } }
+    @Published var displayDuration: Double {
+        didSet {
+            defaults.set(displayDuration, forKey: "displayDuration")
+            scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
+        }
+    }
+    @Published var timingMode: CarouselTimingMode {
+        didSet {
+            defaults.set(timingMode.rawValue, forKey: "carouselTimingMode")
+            scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
+        }
+    }
     @Published var hudLayoutMode: HUDLayoutMode { didSet { hudPreferences.saveLayoutMode(hudLayoutMode) } }
     @Published var hudGlowMode: HUDGlowMode { didSet { hudPreferences.saveGlowMode(hudGlowMode) } }
 
@@ -42,8 +53,10 @@ final class AppModel: ObservableObject {
         defaults.register(defaults: ["hudVisible": true, "displayDuration": 5.0])
         isHUDVisible = defaults.bool(forKey: "hudVisible")
         displayDuration = [3.0, 5.0, 10.0].contains(defaults.double(forKey: "displayDuration")) ? defaults.double(forKey: "displayDuration") : 5
+        timingMode = defaults.string(forKey: "carouselTimingMode").flatMap(CarouselTimingMode.init(rawValue:)) ?? .uniform
         hudLayoutMode = hudPreferences.loadLayoutMode()
         hudGlowMode = hudPreferences.loadGlowMode()
+        scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
         expandedProjectKeys = Set(defaults.stringArray(forKey: "expandedProjectKeys") ?? [])
         restoreSessions()
     }
@@ -71,7 +84,7 @@ final class AppModel: ObservableObject {
 
     func tick(now: Date = Date()) {
         recheckCompletionTimeouts(now: now)
-        if let decision = scheduler.advance(now: now, displayDuration: displayDuration) { applyDisplayDecision(decision) }
+        if let decision = scheduler.advance(now: now) { applyDisplayDecision(decision) }
     }
 
     func recheckCompletionTimeouts(now: Date = Date()) {

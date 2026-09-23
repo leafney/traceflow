@@ -23,6 +23,22 @@ final class UnixSocketTests: XCTestCase {
         XCTAssertThrowsError(try UnixSocketClient.send(Data(count: 1_048_577), to: "/tmp/none"))
     }
 
+    func testReportsEmptyClientPayload() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let path = directory.appendingPathComponent("test.sock").path
+        let dropped = expectation(description: "empty payload dropped")
+        let server = UnixSocketServer(path: path, dropHandler: { drop in
+            if drop == .emptyInput { dropped.fulfill() }
+        }) { _ in XCTFail("empty input must not reach handler") }
+        try server.start()
+        let client = try connect(to: path)
+        Darwin.shutdown(client, SHUT_WR)
+        Darwin.close(client)
+        wait(for: [dropped], timeout: 1)
+        server.stop()
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     func testPartialClientTimesOutWithoutBlockingNextMessage() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let path = directory.appendingPathComponent("test.sock").path

@@ -66,7 +66,16 @@ final class AppModel: ObservableObject {
     func startListening() {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let logger = self.logger
-        let server = UnixSocketServer(path: TraceflowPaths.socket().path) { data in
+        let server = UnixSocketServer(
+            path: TraceflowPaths.socket().path,
+            dropHandler: { drop in
+                switch drop {
+                case let .readError(bytes): logger.log(DiagnosticLogFormatter.socketDrop(reason: "read_error", bytes: bytes))
+                case .emptyInput: logger.log(DiagnosticLogFormatter.socketDrop(reason: "empty_input", bytes: 0))
+                case let .oversizeInput(bytes): logger.log(DiagnosticLogFormatter.socketDrop(reason: "oversize_input", bytes: bytes))
+                }
+            }
+        ) { data in
             guard let envelope = try? decoder.decode(HookEnvelope.self, from: data) else {
                 logger.log(DiagnosticLogFormatter.decodeFailed(bytes: data.count))
                 return

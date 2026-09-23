@@ -7,6 +7,12 @@ public enum UnixSocketError: Error, Equatable {
     case messageTooLarge
 }
 
+public enum UnixSocketReadDrop: Sendable, Equatable {
+    case readError(bytes: Int)
+    case emptyInput
+    case oversizeInput(bytes: Int)
+}
+
 public enum UnixSocketClient {
     public static func send(_ data: Data, to path: String, timeoutMilliseconds: Int32 = 200) throws {
         guard data.count <= 1_048_576 else { throw UnixSocketError.messageTooLarge }
@@ -39,13 +45,20 @@ public final class UnixSocketServer: @unchecked Sendable {
     public typealias Handler = @Sendable (Data) -> Void
     private let path: String
     private let handler: Handler
+    private let dropHandler: @Sendable (UnixSocketReadDrop) -> Void
     private let queue: DispatchQueue
     private var fd: Int32 = -1
     private var source: DispatchSourceRead?
 
-    public init(path: String, queue: DispatchQueue = DispatchQueue(label: "io.traceflow.socket"), handler: @escaping Handler) {
+    public init(
+        path: String,
+        queue: DispatchQueue = DispatchQueue(label: "io.traceflow.socket"),
+        dropHandler: @escaping @Sendable (UnixSocketReadDrop) -> Void = { _ in },
+        handler: @escaping Handler
+    ) {
         self.path = path
         self.queue = queue
+        self.dropHandler = dropHandler
         self.handler = handler
     }
 
@@ -93,12 +106,17 @@ public final class UnixSocketServer: @unchecked Sendable {
             if count == 0 { break }
             if count < 0 {
                 if errno == EINTR { continue }
+                dropHandler(.readError(bytes: data.count))
                 return
             }
             data.append(buffer, count: count)
-            if data.count > 1_048_576 { return }
+            if data.count > 1_048_576 {
+                dropHandler(.oversizeInput(bytes: data.count))
+                return
+            }
         }
         if !data.isEmpty { handler(data) }
+        else { dropHandler(.emptyInput) }
     }
 }
 

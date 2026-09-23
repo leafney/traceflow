@@ -2,7 +2,7 @@
 
 Related discussion: [docs/discuss/2026-09-23-codex-choice-state-diagnostics.md](../discuss/2026-09-23-codex-choice-state-diagnostics.md)
 
-> 状态：待用户批准。本文件是本轮诊断功能的完整实现规范；旧文档仅供背景参考。不得把本 PRD 当作“选项题红灯滞留已修复”的验收依据。
+> 状态：已实现，待人工复现。本文件是本轮诊断功能的完整实现规范；旧文档仅供背景参考。不得把本 PRD 当作“选项题红灯滞留已修复”的验收依据。
 
 ## 实现者先读
 

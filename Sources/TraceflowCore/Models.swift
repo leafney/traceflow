@@ -23,6 +23,8 @@ public struct HookPayload: Codable, Sendable, Equatable {
     public let cwd: String?
     public let eventName: HookEventName
     public let turnID: String?
+    public let toolName: String?
+    public let toolUseID: String?
     public let source: String?
     public let prompt: String?
 
@@ -31,6 +33,8 @@ public struct HookPayload: Codable, Sendable, Equatable {
         case cwd
         case eventName = "hook_event_name"
         case turnID = "turn_id"
+        case toolName = "tool_name"
+        case toolUseID = "tool_use_id"
         case source
         case prompt
     }
@@ -40,6 +44,8 @@ public struct HookPayload: Codable, Sendable, Equatable {
         cwd: String? = nil,
         eventName: HookEventName,
         turnID: String? = nil,
+        toolName: String? = nil,
+        toolUseID: String? = nil,
         source: String? = nil,
         prompt: String? = nil
     ) {
@@ -47,6 +53,8 @@ public struct HookPayload: Codable, Sendable, Equatable {
         self.cwd = cwd
         self.eventName = eventName
         self.turnID = turnID
+        self.toolName = toolName
+        self.toolUseID = toolUseID
         self.source = source
         self.prompt = prompt
     }

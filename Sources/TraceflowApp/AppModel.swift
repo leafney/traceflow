@@ -67,7 +67,11 @@ final class AppModel: ObservableObject {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         let logger = self.logger
         let server = UnixSocketServer(path: TraceflowPaths.socket().path) { data in
-            guard let envelope = try? decoder.decode(HookEnvelope.self, from: data) else { logger.log("error=invalid_envelope"); return }
+            guard let envelope = try? decoder.decode(HookEnvelope.self, from: data) else {
+                logger.log(DiagnosticLogFormatter.decodeFailed(bytes: data.count))
+                return
+            }
+            logger.log(DiagnosticLogFormatter.event(stage: "app.received", envelope: envelope, receivedAt: Date()))
             DispatchQueue.main.async { [weak self] in self?.apply(envelope) }
         }
         do {
@@ -300,16 +304,31 @@ final class AppModel: ObservableObject {
                 refreshHooksHealth()
                 hooksActionMessage = "转发通道正常。注意：Codex 是否信任仍以 /hooks 页面为准。"
                 logger.log("hooks=health_check_success")
+                logger.log(DiagnosticLogFormatter.event(stage: "app.internal_handled", envelope: envelope, appliedAt: Date(), extras: [("reason", "health_check")]))
+            } else {
+                logger.log(DiagnosticLogFormatter.event(stage: "app.internal_ignored", envelope: envelope, appliedAt: Date(), extras: [("reason", "unmatched_health_check")]))
             }
             return
         }
         guard !SessionSourcePolicy.isInternalHookSource(envelope.payload.source) else {
             logger.log("event=discarded reason=internal_source")
+            logger.log(DiagnosticLogFormatter.event(stage: "app.internal_ignored", envelope: envelope, appliedAt: Date(), extras: [("reason", "internal_source")]))
             return
         }
         var machine = machines[id] ?? makeMachine(for: envelope)
         let result = machine.apply(envelope, now: Date())
-        guard result.accepted else { logger.log("event=discarded reason=\(String(describing: result.rejection))"); return }
+        let appliedAt = Date()
+        guard result.accepted else {
+            logger.log("event=discarded reason=\(String(describing: result.rejection))")
+            logger.log(DiagnosticLogFormatter.event(stage: "app.rejected", envelope: envelope, appliedAt: appliedAt, extras: [("reason", String(describing: result.rejection))]))
+            return
+        }
+        logger.log(DiagnosticLogFormatter.event(
+            stage: "app.accepted",
+            envelope: envelope,
+            appliedAt: appliedAt,
+            extras: [("old_state", result.oldState.rawValue), ("new_state", result.newState.rawValue), ("state_changed", String(result.stateChanged))]
+        ))
         localCommunicationHealth = LocalCommunicationHealth(state: .healthy, detail: "最近成功收到 Hook 事件")
         machines[id] = machine
         let snapshot = machine.snapshot

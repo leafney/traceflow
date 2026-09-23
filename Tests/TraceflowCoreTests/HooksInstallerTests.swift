@@ -167,6 +167,41 @@ final class HooksInstallerTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    func testEveryStateBearingHookIsSynchronousAndPermissionAsyncRequiresRepair() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let hooks = root.appendingPathComponent("hooks.json")
+        let source = root.appendingPathComponent("source")
+        let installed = root.appendingPathComponent("installed")
+        try Data("binary".utf8).write(to: source)
+        let installer = HooksInstaller(hooksURL: hooks, installedNotifierURL: installed, sourceNotifierURL: source)
+        try installer.installOrRepair()
+
+        var object = try JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as! [String: Any]
+        var allHooks = object["hooks"] as! [String: Any]
+        for event in HooksInstaller.events {
+            let handler = ((allHooks[event] as! [[String: Any]])[0]["hooks"] as! [[String: Any]])[0]
+            XCTAssertNil(handler["async"], "\(event) must preserve lifecycle order")
+            XCTAssertEqual(handler["timeout"] as? Int, 3)
+        }
+
+        var permissionGroups = allHooks["PermissionRequest"] as! [[String: Any]]
+        var permissionHandlers = permissionGroups[0]["hooks"] as! [[String: Any]]
+        permissionHandlers[0]["async"] = true
+        permissionGroups[0]["hooks"] = permissionHandlers
+        allHooks["PermissionRequest"] = permissionGroups
+        object["hooks"] = allHooks
+        try JSONSerialization.data(withJSONObject: object).write(to: hooks)
+        XCTAssertTrue(installer.inspect().issues.contains { $0.contains("PermissionRequest") })
+
+        try installer.installOrRepair()
+        object = try JSONSerialization.jsonObject(with: Data(contentsOf: hooks)) as! [String: Any]
+        allHooks = object["hooks"] as! [String: Any]
+        permissionHandlers = ((allHooks["PermissionRequest"] as! [[String: Any]])[0]["hooks"] as! [[String: Any]])
+        XCTAssertNil(permissionHandlers[0]["async"])
+        try? FileManager.default.removeItem(at: root)
+    }
+
     func testInspectionRequiresSessionStartMatcherAndExecutableNotifier() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

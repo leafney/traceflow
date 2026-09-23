@@ -4,6 +4,8 @@ Related discussion: [docs/discuss/2026-09-23-codex-choice-state-diagnostics.md](
 
 > 状态：已实现，待人工复现。本文件是本轮诊断功能的完整实现规范；旧文档仅供背景参考。不得把本 PRD 当作“选项题红灯滞留已修复”的验收依据。
 
+> 2026-09-23 部署前审查修订：由于异步 `PermissionRequest` 可能在同步 `PreToolUse` 之后才执行，并以较晚的本地时间戳覆盖已进入 `running` 的会话，所有会改变 Traceflow 会话状态的 Codex Hook 均改为同步本地转发。此修订不改变红／黄／绿映射或状态机事件映射，只消除转发器执行顺序倒置。
+
 ## 实现者先读
 
 1. **只做诊断，不改行为。** 红／黄／绿映射、状态机转移、轮播 6／4／2 秒、红灯快闪、完成态 10 分钟超时均保持原样。不要靠定时器、回复文本猜测、读取终端或 Codex 会话 JSONL 来修灯。
@@ -74,6 +76,8 @@ Related discussion: [docs/discuss/2026-09-23-codex-choice-state-diagnostics.md](
 - `UnixSocketClient.send` 正常返回时只可称 `write_completed`；它没有等待服务器确认，不能记作 `delivered`。把现有 `UnixSocketError` 的操作名和数值 errno 格式化为安全字段；路径过长／消息过大用固定错误类别，其他意外错误用固定 `unknown`，不把 `localizedDescription` 原样写进日志。
 - 转发器是短生命周期进程，返回 Codex 前必须确保该次诊断记录完成落盘或完成可验证的同步提交。若继续复用 `RotatingLogger` 的异步 `log()`，每条调用后的最终 `flush()` 是必需步骤；不能把唯一失败证据留在进程即将退出的异步队列里。
 - 不新增 Hook 类型、不更改 Hooks 安装配置和信任流程。
+- **时序修复：** `SessionStart`、`UserPromptSubmit`、`PreToolUse`、`PermissionRequest`、`PostToolUse`、`Stop`、`Interrupt`、`SessionEnd` 的 Traceflow 命令处理器均不得设置 `async: true`，并保持 `timeout: 3`。转发器只做本地 Socket 写入与同步日志冲刷，正常情况下远低于超时；同步执行使 Codex 按生命周期发生顺序等待对应状态送达，避免异步 `PermissionRequest`、`UserPromptSubmit` 或 `PostToolUse` 晚到覆盖后续状态。若实际转发器超时，诊断日志应如实记录，不能恢复 `async` 来掩盖时序问题。
+- **安装顺序修复：** 安装／修复时，先复制、设为可执行并替换用户目录中的转发器；转发器成功就位后才备份和原子写入 `hooks.json`。若转发器准备失败，原 `hooks.json` 必须完全不变；若配置写入失败，已更新但未被配置引用的转发器可保留，用户可安全重试安装。
 
 ### 3. 应用接收及状态机阶段
 

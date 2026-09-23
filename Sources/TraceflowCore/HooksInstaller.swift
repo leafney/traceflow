@@ -36,11 +36,10 @@ public struct HooksInstaller {
         for event in Self.events {
             var groups = hooks[event] as? [[String: Any]] ?? []
             groups = removingTraceflowHandlers(from: groups)
-            var handler: [String: Any] = ["type": "command", "command": Self.shellQuote(installedNotifierURL.path), "timeout": 3]
-            // PreToolUse is deliberately synchronous. Codex waits for this short,
-            // local forwarding operation before executing the tool, preserving the
-            // attention -> running transition order around permission approval.
-            if !["PreToolUse", "Stop", "SessionEnd"].contains(event) { handler["async"] = true }
+            // Every state-bearing lifecycle event is synchronous. An async
+            // PermissionRequest can arrive after a later PreToolUse and falsely
+            // put an already-working session back into attention/red.
+            let handler: [String: Any] = ["type": "command", "command": Self.shellQuote(installedNotifierURL.path), "timeout": 3]
             var group: [String: Any] = ["hooks": [handler]]
             if event == "SessionStart" { group["matcher"] = "startup|resume|clear" }
             groups.append(group)
@@ -51,12 +50,12 @@ public struct HooksInstaller {
         let staged = installedNotifierURL.deletingLastPathComponent().appendingPathComponent(".traceflow-notify-\(UUID().uuidString)")
         try FileManager.default.copyItem(at: sourceNotifierURL, to: staged)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staged.path)
-        try backupAndWrite(root)
         if FileManager.default.fileExists(atPath: installedNotifierURL.path) {
             _ = try FileManager.default.replaceItemAt(installedNotifierURL, withItemAt: staged)
         } else {
             try FileManager.default.moveItem(at: staged, to: installedNotifierURL)
         }
+        try backupAndWrite(root)
     }
 
     public func remove() throws {
@@ -108,8 +107,7 @@ public struct HooksInstaller {
                     guard (handler["type"] as? String) == "command",
                           (handler["command"] as? String) == expectedCommand,
                           number(handler["timeout"]) == 3 else { return false }
-                    let async = handler["async"] as? Bool
-                    return ["PreToolUse", "Stop", "SessionEnd"].contains(event) ? async != true : async == true
+                    return (handler["async"] as? Bool) != true
                 }
             }
             if matchingGroup == nil { issues.append("\(event) 定义缺失或不完整") }

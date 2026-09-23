@@ -1,5 +1,7 @@
 # 权限确认后状态切换讨论纪要
 
+> 历史记录：本文中的黄绿灯含义和轮播规则已由 [最新讨论](../discuss/2026-09-23-carousel-priority-color-timing.md) 与 [正式 PRD](../plan/2026-09-23-carousel-priority-color-timing.md) 覆盖。`PreToolUse → running` 仍有效，其 HUD 颜色现为绿灯。
+
 ## 原始需求
 
 当 Codex 出现权限选择时，Traceflow HUD 正确显示红灯快闪。用户完成选择并确认后，Codex 已继续执行，但 HUD 仍保持红灯，直至工具执行完成才转为其他状态。用户要求检查是否缺少状态监控或通知，并优化该体验。

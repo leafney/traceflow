@@ -1,5 +1,7 @@
 # Traceflow MVP 可靠性修复与 HUD 视觉优化讨论纪要
 
+> 历史记录：本文中的黄绿灯含义和轮播规则已由 [最新讨论](../discuss/2026-09-23-carousel-priority-color-timing.md) 与 [正式 PRD](../plan/2026-09-23-carousel-priority-color-timing.md) 覆盖。当前规则为黄灯已完成、绿灯运行中，红 > 黄 > 绿三级抢占。
+
 ## 原始需求
 
 用户要求在继续开发前，先审查当前阶段已经实现的全部功能逻辑，找出遗漏、未完成和实现不可靠之处，再使用 `grill-me` 逐项讨论并整理为可执行的修复方案。
@@ -179,4 +181,3 @@
 ## 文档关系
 
 本纪要对应的正式开发规范为：`docs/plan/2026-09-22-mvp-reliability-hud-polish.md`。
-

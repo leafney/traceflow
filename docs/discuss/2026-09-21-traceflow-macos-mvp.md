@@ -1,5 +1,7 @@
 # Traceflow macOS MVP 需求讨论纪要
 
+> 历史记录：本文中的黄绿灯含义和轮播规则已由 [最新讨论](../discuss/2026-09-23-carousel-priority-color-timing.md) 与 [正式 PRD](../plan/2026-09-23-carousel-priority-color-timing.md) 覆盖。当前规则为黄灯已完成、绿灯运行中，红 > 黄 > 绿三级抢占。
+
 日期：2026-09-21
 状态：讨论完成，已形成共同理解
 对应 PRD：[`docs/plan/2026-09-21-traceflow-macos-mvp.md`](../plan/2026-09-21-traceflow-macos-mvp.md)

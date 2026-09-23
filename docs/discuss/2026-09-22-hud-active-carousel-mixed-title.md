@@ -1,5 +1,7 @@
 # HUD 活跃轮播、混合竖排与项目开关讨论纪要
 
+> 历史记录：本文中的黄绿灯含义和轮播规则已由 [最新讨论](../discuss/2026-09-23-carousel-priority-color-timing.md) 与 [正式 PRD](../plan/2026-09-23-carousel-priority-color-timing.md) 覆盖。当前规则为黄灯已完成、绿灯运行中，红 > 黄 > 绿三级抢占。
+
 ## 原始需求
 
 用户通过三张实测截图提出三类优化：

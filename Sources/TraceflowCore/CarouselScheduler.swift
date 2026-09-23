@@ -65,7 +65,7 @@ public struct CarouselScheduler: Sendable {
             states[session.id] = session.state
         }
         var decision: CarouselDecision?
-        if processNewlyIncluded && !previousIncluded.isEmpty {
+        if processNewlyIncluded && (!previousIncluded.isEmpty || hasPresentedPlaceholder) {
             let newlyIncluded = rotationOrder.filter { included.contains($0) && !previousIncluded.contains($0) && states[$0] != .idle }
             let ordered = newlyIncluded.sorted {
                 let left = priority(states[$0] ?? .idle), right = priority(states[$1] ?? .idle)
@@ -93,8 +93,9 @@ public struct CarouselScheduler: Sendable {
             if newState == .idle { return reconcile(now: now, reason: .selectionChanged) }
             pruneQueues()
             if let higher = highestQueuedPriority(), higher > priority(newState) {
+                let decision = selectQueuedOrRotated(now: now, fallbackReason: .stateChanged)
                 append(sessionID, state: newState)
-                return selectQueuedOrRotated(now: now, fallbackReason: .stateChanged)
+                return decision
             }
             beginCycle(sessionID, state: newState, now: now, animated: false)
             return CarouselDecision(sessionID: sessionID, reason: .stateChanged, animated: false, cycle: currentCycle, previousSessionID: sessionID)

@@ -1,5 +1,7 @@
 # HUD 双档光晕与横纵布局 PRD
 
+> 规范更新：本文中的黄绿灯含义和轮播规则已由 [最新 PRD](../plan/2026-09-23-carousel-priority-color-timing.md) 覆盖。当前规则为黄灯已完成、绿灯运行中，红 > 黄 > 绿三级抢占；历史描述仅保留作开发记录。
+
 Related discussion: [`docs/discuss/2026-09-22-hud-glow-vertical-layout.md`](../discuss/2026-09-22-hud-glow-vertical-layout.md)
 
 状态：已批准，修复审查发现的问题（2026-09-22）。

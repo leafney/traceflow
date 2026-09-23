@@ -142,7 +142,9 @@ final class CarouselSchedulerTests: XCTestCase {
         _ = scheduler.reportStateChange(sessionID: "b", newState: .attention, stateChanged: true, now: base.addingTimeInterval(1))
         let decision = scheduler.reportStateChange(sessionID: "a", newState: .running, stateChanged: true, now: base.addingTimeInterval(2))
         XCTAssertEqual(decision?.sessionID, "b")
-        XCTAssertEqual(scheduler.advance(now: base.addingTimeInterval(7.2))?.sessionID, "a")
+        let resumed = scheduler.advance(now: base.addingTimeInterval(7.2))
+        XCTAssertEqual(resumed?.sessionID, "a")
+        XCTAssertEqual(resumed?.reason, .greenQueue)
     }
 
     func testPreemptionMatrix() {

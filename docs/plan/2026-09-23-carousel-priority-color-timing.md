@@ -2,7 +2,7 @@
 
 Related discussion: [docs/discuss/2026-09-23-carousel-priority-color-timing.md](../discuss/2026-09-23-carousel-priority-color-timing.md)
 
-状态：已批准，实施中
+状态：已批准，已实施
 
 日期：2026-09-23
 

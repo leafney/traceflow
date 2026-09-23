@@ -2,6 +2,21 @@ import XCTest
 @testable import TraceflowCore
 
 final class SessionEventLogFormatterTests: XCTestCase {
+    func testCarouselSwitchIncludesCycleContext() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let cycle = PresentationCycle(sessionID: "b", runtimeState: .completed, timingModeSnapshot: .byState, durationSnapshot: 4, visibleFrom: now, deadline: now.addingTimeInterval(4), generation: 1)
+        let line = SessionEventLogFormatter.carouselSwitch(fromSessionID: "a", toSessionID: "b", projectName: "示例", state: .completed, reason: .yellowPreemption, cycle: cycle)
+        XCTAssertTrue(line.contains("from_session_id=\"a\""))
+        XCTAssertTrue(line.contains("to_session_id=\"b\""))
+        XCTAssertTrue(line.contains("to_state=completed"))
+        XCTAssertTrue(line.contains("reason=yellowPreemption"))
+        XCTAssertTrue(line.contains("timing_mode=byState"))
+        XCTAssertTrue(line.contains("duration_seconds=4.0"))
+    }
+
+    func testSettingsLogMarksNextCycle() {
+        XCTAssertTrue(SessionEventLogFormatter.carouselSettings(mode: .uniform, uniformDuration: 10).contains("applies=next_cycle"))
+    }
     func testFormatsAcceptedTransitionWithStableFieldOrder() {
         XCTAssertEqual(
             SessionEventLogFormatter.stateTransition(

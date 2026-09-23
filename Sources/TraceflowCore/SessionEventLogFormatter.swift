@@ -15,6 +15,23 @@ public enum SessionEventLogFormatter {
         "event=\(event.rawValue) state=\(oldState.rawValue)->\(newState.rawValue) project=\(quoted(projectName)) session_id=\(quoted(sessionID)) title=\(quoted(title))"
     }
 
+    public static func carouselSwitch(
+        fromSessionID: String?,
+        toSessionID: String?,
+        projectName: String?,
+        state: SessionRuntimeState?,
+        reason: CarouselSwitchReason,
+        cycle: PresentationCycle?
+    ) -> String {
+        let mode = cycle?.timingModeSnapshot.rawValue ?? "none"
+        let duration = cycle.map { String($0.durationSnapshot) } ?? "none"
+        return "carousel=switch from_session_id=\(quoted(fromSessionID ?? "none")) to_session_id=\(quoted(toSessionID ?? "none")) to_project=\(quoted(projectName ?? "none")) to_state=\(state?.rawValue ?? "none") reason=\(String(describing: reason)) timing_mode=\(mode) duration_seconds=\(duration)"
+    }
+
+    public static func carouselSettings(mode: CarouselTimingMode, uniformDuration: TimeInterval) -> String {
+        "carousel=settings_changed timing_mode=\(mode.rawValue) uniform_duration_seconds=\(uniformDuration) applies=next_cycle"
+    }
+
     private static func quoted(_ value: String) -> String {
         "\"\(escape(value))\""
     }

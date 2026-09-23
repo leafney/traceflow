@@ -24,12 +24,14 @@ final class AppModel: ObservableObject {
         didSet {
             defaults.set(displayDuration, forKey: "displayDuration")
             scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
+            logger.log(SessionEventLogFormatter.carouselSettings(mode: timingMode, uniformDuration: displayDuration))
         }
     }
     @Published var timingMode: CarouselTimingMode {
         didSet {
             defaults.set(timingMode.rawValue, forKey: "carouselTimingMode")
             scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
+            logger.log(SessionEventLogFormatter.carouselSettings(mode: timingMode, uniformDuration: displayDuration))
         }
     }
     @Published var hudLayoutMode: HUDLayoutMode { didSet { hudPreferences.saveLayoutMode(hudLayoutMode) } }
@@ -361,6 +363,14 @@ final class AppModel: ObservableObject {
     private func applyDisplayDecision(_ decision: CarouselDecision) {
         shouldAnimateDisplayChange = decision.animated
         displayedSession = decision.sessionID.flatMap { machines[$0]?.snapshot }
+        logger.log(SessionEventLogFormatter.carouselSwitch(
+            fromSessionID: decision.previousSessionID,
+            toSessionID: decision.sessionID,
+            projectName: displayedSession?.persisted.projectName,
+            state: displayedSession?.state,
+            reason: decision.reason,
+            cycle: decision.cycle
+        ))
     }
 
     private func updateDisplay(_ id: String?) {

@@ -1,5 +1,7 @@
 # Traceflow：权限确认后的即时运行状态
 
+> 规范更新：本文中的旧黄绿灯颜色已由 [最新 PRD](../plan/2026-09-23-carousel-priority-color-timing.md) 覆盖。`PreToolUse → running` 仍有效，其 HUD 颜色现为绿灯。
+
 Related discussion: [docs/discuss/2026-09-22-pre-tool-use-status.md](../discuss/2026-09-22-pre-tool-use-status.md)
 
 ## 实现者必读

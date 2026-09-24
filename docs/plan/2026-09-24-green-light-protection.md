@@ -2,7 +2,7 @@
 
 Related discussion: [docs/discuss/2026-09-24-green-light-protection.md](../discuss/2026-09-24-green-light-protection.md)
 
-> 状态：已批准，实施中。本文覆盖旧轮播 PRD 中“黄灯立即抢占绿灯”的规则；其他已实现的状态映射、队列、时长和视觉效果保持现行行为。实现者须完整阅读本文；不要只在收到新 Hook 时判断保护时间。
+> 状态：已实现，待人工观察实际 HUD 观感。本文覆盖旧轮播 PRD 中“黄灯立即抢占绿灯”的规则；其他已实现的状态映射、队列、时长和视觉效果保持现行行为。
 
 ## Problem Statement
 
@@ -116,3 +116,4 @@ Related discussion: [docs/discuss/2026-09-24-green-light-protection.md](../discu
 
 - 旧规格 `docs/plan/2026-09-23-carousel-priority-color-timing.md` 将新黄灯定义为立即抢占绿灯；批准本 PRD 后，此条由本文替代。
 - 现有调度器已为被打断会话重新创建完整展示周期，此语义应保持。
+- 2026-09-24 实现验证：轮播调度器定向测试 24 项通过，全量测试 122 项通过，`swift build` 和 `git diff --check` 通过。实际 HUD 动画观感需在重新安装运行后由用户观察。

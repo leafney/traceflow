@@ -107,9 +107,9 @@ public struct CarouselScheduler: Sendable {
 
     public mutating func advance(now: Date) -> CarouselDecision? {
         pruneQueues()
+        if let decision = preemptWithQueuedRed(now: now) { return decision }
         if let protectionDeadline = greenProtectionDeadline,
            now >= protectionDeadline,
-           redQueue.isEmpty,
            let next = dequeueValidYellow() {
             if let current = currentSessionID, let state = states[current], state != .idle {
                 append(current, state: state)
@@ -250,6 +250,17 @@ public struct CarouselScheduler: Sendable {
         return select(next, now: now, reason: fallbackReason, animated: next != currentSessionID)
     }
 
+    private mutating func preemptWithQueuedRed(now: Date) -> CarouselDecision? {
+        guard let current = currentSessionID,
+              let currentState = states[current],
+              currentState != .attention,
+              let next = dequeueValidRed() else { return nil }
+        if currentState != .idle, eligibleIDs.contains(current) {
+            append(current, state: currentState)
+        }
+        return select(next, now: now, reason: .redQueue, animated: true)
+    }
+
     private mutating func queueOrPreempt(_ id: String, now: Date, allowPreemption: Bool = true) -> CarouselDecision? {
         guard let state = states[id], state != .idle, included.contains(id), id != currentSessionID else { return nil }
         if currentSessionID == nil {
@@ -260,6 +271,8 @@ public struct CarouselScheduler: Sendable {
         if allowPreemption, let current = currentSessionID, priority(state) > priority(states[current] ?? .idle) {
             if state == .completed, states[current] == .running {
                 append(id, state: state)
+                pruneQueues()
+                if let decision = preemptWithQueuedRed(now: now) { return decision }
                 if let deadline = greenProtectionDeadline, now < deadline { return nil }
                 // An older yellow may already be waiting for this same protection point.
                 guard let next = dequeueValidYellow() else { return nil }

@@ -226,6 +226,27 @@ final class CarouselSchedulerTests: XCTestCase {
         XCTAssertNil(scheduler.advance(now: base.addingTimeInterval(5)))
     }
 
+    func testQueuedRedWinsWhenYellowArrivesBeforeNextTick() {
+        var scheduler = schedulerWithQueuedRedAndCurrentGreen()
+        let decision = scheduler.reportStateChange(
+            sessionID: "yellow",
+            newState: .completed,
+            stateChanged: true,
+            now: base.addingTimeInterval(2.1)
+        )
+        XCTAssertEqual(decision?.sessionID, "red")
+        XCTAssertEqual(decision?.reason, .redQueue)
+        XCTAssertEqual(scheduler.advance(now: base.addingTimeInterval(7.4))?.sessionID, "yellow")
+    }
+
+    func testQueuedRedPreemptsAtNextTickWithoutWaitingForCurrentDeadline() {
+        var scheduler = schedulerWithQueuedRedAndCurrentGreen()
+        let decision = scheduler.advance(now: base.addingTimeInterval(2.1))
+        XCTAssertEqual(decision?.sessionID, "red")
+        XCTAssertEqual(decision?.reason, .redQueue)
+        XCTAssertNil(scheduler.advance(now: base.addingTimeInterval(2.1)))
+    }
+
     func testYellowQueueKeepsArrivalOrderAndRepeatedStateDoesNotMoveIt() {
         var scheduler = CarouselScheduler()
         scheduler.updateTimingConfiguration(.init(mode: .uniform, uniformDuration: 10))
@@ -293,5 +314,22 @@ final class CarouselSchedulerTests: XCTestCase {
             persisted: PersistedSession(sessionID: id, isIncludedInHUD: true, discoveredAt: base, lastUpdatedAt: base, rotationIndex: index),
             state: state
         )
+    }
+
+    private func schedulerWithQueuedRedAndCurrentGreen() -> CarouselScheduler {
+        var scheduler = CarouselScheduler()
+        let current = session("current", 0, state: .attention)
+        let red = session("red", 1)
+        let yellow = session("yellow", 2)
+        _ = scheduler.updateSessions([current, red, yellow], now: base)
+        _ = scheduler.reportStateChange(sessionID: "red", newState: .attention, stateChanged: true, now: base.addingTimeInterval(1))
+        // A session-list refresh can update the state mirror before the current
+        // display cycle is reconciled. The queued red must retain priority.
+        var changedCurrent = current
+        changedCurrent.state = .running
+        var changedRed = red
+        changedRed.state = .attention
+        _ = scheduler.updateSessions([changedCurrent, changedRed, yellow], now: base.addingTimeInterval(2))
+        return scheduler
     }
 }

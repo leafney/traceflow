@@ -4,6 +4,7 @@ public enum CarouselSwitchReason: Sendable, Equatable {
     case initial
     case redPreemption
     case yellowPreemption
+    case yellowAfterProtection
     case redQueue
     case yellowQueue
     case greenQueue
@@ -105,9 +106,30 @@ public struct CarouselScheduler: Sendable {
     }
 
     public mutating func advance(now: Date) -> CarouselDecision? {
+        pruneQueues()
+        if let protectionDeadline = greenProtectionDeadline,
+           now >= protectionDeadline,
+           redQueue.isEmpty,
+           let next = dequeueValidYellow() {
+            if let current = currentSessionID, let state = states[current], state != .idle {
+                append(current, state: state)
+            }
+            return select(next, now: now, reason: .yellowAfterProtection, animated: true)
+        }
         guard eligibleIDs.count > 1, let currentCycle,
               now >= currentCycle.deadline else { return nil }
         return selectQueuedOrRotated(now: now, fallbackReason: .rotation)
+    }
+
+    private var greenProtectionDeadline: Date? {
+        guard let currentCycle,
+              currentCycle.runtimeState == .running,
+              currentSessionID == currentCycle.sessionID,
+              eligibleIDs.contains(currentCycle.sessionID) else { return nil }
+        let protectedDuration = currentCycle.timingModeSnapshot == .byState
+            ? currentCycle.durationSnapshot
+            : currentCycle.durationSnapshot / 2
+        return currentCycle.visibleFrom.addingTimeInterval(protectedDuration)
     }
 
     private var eligibleIDs: Set<String> {
@@ -231,9 +253,19 @@ public struct CarouselScheduler: Sendable {
     private mutating func queueOrPreempt(_ id: String, now: Date, allowPreemption: Bool = true) -> CarouselDecision? {
         guard let state = states[id], state != .idle, included.contains(id), id != currentSessionID else { return nil }
         if currentSessionID == nil {
-            return allowPreemption ? select(id, now: now, reason: .initial, animated: false) : nil
+            if allowPreemption { return select(id, now: now, reason: .initial, animated: false) }
+            append(id, state: state)
+            return nil
         }
         if allowPreemption, let current = currentSessionID, priority(state) > priority(states[current] ?? .idle) {
+            if state == .completed, states[current] == .running {
+                append(id, state: state)
+                if let deadline = greenProtectionDeadline, now < deadline { return nil }
+                // An older yellow may already be waiting for this same protection point.
+                guard let next = dequeueValidYellow() else { return nil }
+                append(current, state: .running)
+                return select(next, now: now, reason: .yellowPreemption, animated: true)
+            }
             if let previousState = states[current], previousState != .idle, eligibleIDs.contains(current) {
                 append(current, state: previousState)
             }

@@ -111,15 +111,18 @@ final class CarouselSchedulerTests: XCTestCase {
         XCTAssertNil(scheduler.advance(now: base.addingTimeInterval(10)))
     }
 
-    func testYellowPreemptsGreenAndInterruptedGreenReturnsWithFullCycle() {
+    func testYellowWaitsForGreenProtectionAndInterruptedGreenReturnsWithFullCycle() {
         var scheduler = CarouselScheduler()
         scheduler.updateTimingConfiguration(.init(mode: .byState))
         _ = scheduler.updateSessions([session("green", 0, state: .running), session("yellow", 1)], now: base)
         let decision = scheduler.reportStateChange(sessionID: "yellow", newState: .completed, stateChanged: true, now: base.addingTimeInterval(1))
-        XCTAssertEqual(decision?.reason, .yellowPreemption)
-        XCTAssertEqual(decision?.cycle?.durationSnapshot, 4)
-        XCTAssertNil(scheduler.advance(now: base.addingTimeInterval(5)))
-        let resumed = scheduler.advance(now: base.addingTimeInterval(5.2))
+        XCTAssertNil(decision)
+        XCTAssertNil(scheduler.advance(now: base.addingTimeInterval(1.9)))
+        let yellow = scheduler.advance(now: base.addingTimeInterval(2))
+        XCTAssertEqual(yellow?.reason, .yellowAfterProtection)
+        XCTAssertEqual(yellow?.cycle?.durationSnapshot, 4)
+        XCTAssertNil(scheduler.advance(now: base.addingTimeInterval(6)))
+        let resumed = scheduler.advance(now: base.addingTimeInterval(6.2))
         XCTAssertEqual(resumed?.sessionID, "green")
         XCTAssertEqual(resumed?.reason, .greenQueue)
         XCTAssertEqual(resumed?.cycle?.durationSnapshot, 2)
@@ -151,7 +154,7 @@ final class CarouselSchedulerTests: XCTestCase {
         let cases: [(SessionRuntimeState, SessionRuntimeState, Bool)] = [
             (.attention, .attention, false), (.attention, .completed, false), (.attention, .running, false),
             (.completed, .attention, true), (.completed, .completed, false), (.completed, .running, false),
-            (.running, .attention, true), (.running, .completed, true), (.running, .running, false)
+            (.running, .attention, true), (.running, .completed, false), (.running, .running, false)
         ]
         for (current, incoming, preempts) in cases {
             var scheduler = CarouselScheduler()
@@ -161,7 +164,7 @@ final class CarouselSchedulerTests: XCTestCase {
         }
     }
 
-    func testEnablingActiveYellowPreemptsGreen() {
+    func testEnablingActiveYellowWaitsForGreenProtection() {
         var scheduler = CarouselScheduler()
         let green = session("a", 0, state: .running)
         var yellow = session("b", 1, state: .completed)
@@ -169,8 +172,58 @@ final class CarouselSchedulerTests: XCTestCase {
         _ = scheduler.updateSessions([green, yellow], now: base)
         yellow.persisted.isIncludedInHUD = true
         let decision = scheduler.updateSessions([green, yellow], now: base.addingTimeInterval(1))
-        XCTAssertEqual(decision?.sessionID, "b")
+        XCTAssertNil(decision)
+        XCTAssertEqual(scheduler.advance(now: base.addingTimeInterval(2.5))?.sessionID, "b")
+    }
+
+    func testUniformGreenProtectionUsesHalfOfEachConfiguredDuration() {
+        for duration in [3.0, 5.0, 10.0] {
+            var scheduler = CarouselScheduler()
+            scheduler.updateTimingConfiguration(.init(mode: .uniform, uniformDuration: duration))
+            _ = scheduler.updateSessions([session("green", 0, state: .running), session("yellow", 1)], now: base)
+            XCTAssertNil(scheduler.reportStateChange(sessionID: "yellow", newState: .completed, stateChanged: true, now: base.addingTimeInterval(0.5)))
+            XCTAssertNil(scheduler.advance(now: base.addingTimeInterval(duration / 2 - 0.01)))
+            XCTAssertEqual(scheduler.advance(now: base.addingTimeInterval(duration / 2))?.sessionID, "yellow")
+        }
+    }
+
+    func testYellowArrivingAfterProtectionPreemptsImmediately() {
+        var scheduler = CarouselScheduler()
+        scheduler.updateTimingConfiguration(.init(mode: .uniform, uniformDuration: 10))
+        _ = scheduler.updateSessions([session("green", 0, state: .running), session("yellow", 1)], now: base)
+        let decision = scheduler.reportStateChange(sessionID: "yellow", newState: .completed, stateChanged: true, now: base.addingTimeInterval(7))
+        XCTAssertEqual(decision?.sessionID, "yellow")
         XCTAssertEqual(decision?.reason, .yellowPreemption)
+    }
+
+    func testOlderQueuedYellowWinsWhenNewYellowArrivesAfterProtection() {
+        var scheduler = CarouselScheduler()
+        scheduler.updateTimingConfiguration(.init(mode: .uniform, uniformDuration: 10))
+        _ = scheduler.updateSessions([session("green", 0, state: .running), session("first", 1), session("second", 2)], now: base)
+        XCTAssertNil(scheduler.reportStateChange(sessionID: "first", newState: .completed, stateChanged: true, now: base.addingTimeInterval(1)))
+        let decision = scheduler.reportStateChange(sessionID: "second", newState: .completed, stateChanged: true, now: base.addingTimeInterval(5.1))
+        XCTAssertEqual(decision?.sessionID, "first")
+        XCTAssertEqual(scheduler.advance(now: base.addingTimeInterval(15.4))?.sessionID, "second")
+    }
+
+    func testCurrentGreenTurnsYellowImmediatelyDuringProtection() {
+        var scheduler = CarouselScheduler()
+        scheduler.updateTimingConfiguration(.init(mode: .byState))
+        _ = scheduler.updateSessions([session("green", 0, state: .running)], now: base)
+        let decision = scheduler.reportStateChange(sessionID: "green", newState: .completed, stateChanged: true, now: base.addingTimeInterval(0.5))
+        XCTAssertEqual(decision?.sessionID, "green")
+        XCTAssertEqual(decision?.cycle?.runtimeState, .completed)
+        XCTAssertEqual(decision?.cycle?.durationSnapshot, 4)
+    }
+
+    func testRedStillPreemptsProtectedGreen() {
+        var scheduler = CarouselScheduler()
+        scheduler.updateTimingConfiguration(.init(mode: .uniform, uniformDuration: 10))
+        _ = scheduler.updateSessions([session("green", 0, state: .running), session("yellow", 1), session("red", 2)], now: base)
+        XCTAssertNil(scheduler.reportStateChange(sessionID: "yellow", newState: .completed, stateChanged: true, now: base.addingTimeInterval(1)))
+        let decision = scheduler.reportStateChange(sessionID: "red", newState: .attention, stateChanged: true, now: base.addingTimeInterval(2))
+        XCTAssertEqual(decision?.reason, .redPreemption)
+        XCTAssertNil(scheduler.advance(now: base.addingTimeInterval(5)))
     }
 
     private func session(_ id: String, _ index: Int, state: SessionRuntimeState = .idle) -> SessionSnapshot {

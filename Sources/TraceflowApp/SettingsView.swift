@@ -48,6 +48,7 @@ struct SettingsView: View {
                         get: { model.hudTitleColor == .white },
                         set: { model.hudTitleColor = $0 ? .white : .black }
                     ))
+                    .toggleStyle(.switch)
                     .labelsHidden()
                     .accessibilityLabel("标题颜色")
                     .accessibilityValue(model.hudTitleColor == .white ? "白色" : "黑色")

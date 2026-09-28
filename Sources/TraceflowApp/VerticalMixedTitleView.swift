@@ -5,13 +5,15 @@ import TraceflowCore
 
 struct VerticalMixedTitleView: NSViewRepresentable {
     let title: String
+    let color: HUDTitleColor
 
     func makeNSView(context: Context) -> MixedTitleNSView {
-        MixedTitleNSView(title: title)
+        MixedTitleNSView(title: title, color: color)
     }
 
     func updateNSView(_ view: MixedTitleNSView, context: Context) {
         view.title = title
+        view.color = color
     }
 }
 
@@ -27,10 +29,20 @@ final class MixedTitleNSView: NSView {
         }
     }
 
+    var color: HUDTitleColor {
+        didSet {
+            guard color != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
+    private var titleNSColor: NSColor { color == .white ? .white : .black }
+
     override var isFlipped: Bool { true }
 
-    init(title: String) {
+    init(title: String, color: HUDTitleColor) {
         self.title = title
+        self.color = color
         super.init(frame: .zero)
         setAccessibilityElement(true)
         setAccessibilityLabel(title)
@@ -66,7 +78,7 @@ final class MixedTitleNSView: NSView {
 
         var cursor = align(6, scale: scale)
         let center = align(bounds.midX, scale: scale)
-        context.setFillColor(NSColor.labelColor.cgColor)
+        context.setFillColor(titleNSColor.cgColor)
         for segment in layout.visibleSegments {
             let length = advance(for: segment, font: font, scale: scale)
             switch segment {
@@ -182,7 +194,7 @@ final class MixedTitleNSView: NSView {
     }
 
     private func line(_ text: String, font: NSFont) -> CTLine {
-        CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
+        CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: titleNSColor]))
     }
 
     private func align(_ value: CGFloat, scale: CGFloat) -> CGFloat {

@@ -43,7 +43,7 @@ struct HUDView: View {
         VStack(spacing: 0) {
             icon.opacity(model.hudIconFraction).frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
             ZStack {
-                VerticalMixedTitleView(title: model.displayedSession?.displayTitle ?? "Traceflow")
+                VerticalMixedTitleView(title: model.displayedSession?.displayTitle ?? "Traceflow", color: model.hudTitleColor)
                     .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
                     .compositingGroup()
                     .id(model.displayedSession?.id ?? "placeholder")
@@ -65,6 +65,7 @@ struct HUDView: View {
     private var title: some View {
         Text(model.displayedSession?.displayTitle ?? "Traceflow")
             .font(.system(size: 13, weight: .medium, design: .rounded))
+            .foregroundStyle(model.hudTitleColor == .white ? Color.white : Color.black)
             .lineLimit(1)
             .truncationMode(.tail)
     }

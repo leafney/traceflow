@@ -129,6 +129,39 @@ final class HUDPositionGeometryTests: XCTestCase {
         XCTAssertEqual(HUDPositionGeometry.matchingScreen(for: saved, among: [nameMatch, uuidMatch]), 1)
     }
 
+    func testAmbiguousLegacyScreensDoNotGuessByDisplayID() {
+        let saved = HUDPositionRecord(version: 3, displayUUID: nil, legacyDisplayID: 1, displayName: "Twin", pixelWidth: 2400, pixelHeight: 1600, relativeX: 0.2, relativeY: 0.8)
+        let screens = [1, 2].map { HUDScreenIdentity(uuid: nil, displayID: UInt32($0), name: "Twin", pixelWidth: 2400, pixelHeight: 1600) }
+        XCTAssertEqual(HUDPositionGeometry.screenMatch(for: saved, among: screens), .ambiguous)
+        XCTAssertNil(HUDPositionGeometry.matchingScreen(for: saved, among: screens))
+    }
+
+    func testMissingUUIDDoesNotMatchDifferentPhysicalScreen() {
+        let different = HUDScreenIdentity(uuid: "different", displayID: 1, name: "Main", pixelWidth: 2400, pixelHeight: 1600)
+        XCTAssertEqual(HUDPositionGeometry.screenMatch(for: record(x: 0.6), among: [different]), .missing)
+    }
+
+    func testTemporaryFallbackDoesNotSaveAndReconnectRestoresRelativePosition() {
+        let saved = record(x: 0.7, y: 0.3)
+        let main = HUDScreenIdentity(uuid: "main", displayID: 2, name: "Laptop", pixelWidth: 1200, pixelHeight: 800)
+        let external = HUDScreenIdentity(uuid: "screen", displayID: 3, name: "External", pixelWidth: 3000, pixelHeight: 2000)
+        let fallback = HUDPositionDecision.resolve(layout: .horizontal, stored: .loaded(saved), screens: [main], visibleFrames: [visible], mainIndex: 0)
+        XCTAssertTrue(fallback.isTemporary)
+        XCTAssertFalse(fallback.shouldSave)
+        let externalFrame = CGRect(x: -2000, y: 50, width: 1800, height: 1000)
+        let restored = HUDPositionDecision.resolve(layout: .horizontal, stored: .loaded(saved), screens: [main, external], visibleFrames: [visible, externalFrame], mainIndex: 0)
+        XCTAssertFalse(restored.isTemporary)
+        XCTAssertFalse(restored.shouldSave)
+        XCTAssertEqual(restored.frame, HUDPositionGeometry.restoredFrame(for: .horizontal, relativeX: 0.7, relativeY: 0.3, visible: externalFrame))
+    }
+
+    func testOnlyMissingRecordSavesInitialDefault() {
+        let screen = HUDScreenIdentity(uuid: "main", displayID: 1, name: "Main", pixelWidth: 1200, pixelHeight: 800)
+        XCTAssertTrue(HUDPositionDecision.resolve(layout: .vertical, stored: .missing, screens: [screen], visibleFrames: [visible], mainIndex: 0).shouldSave)
+        XCTAssertFalse(HUDPositionDecision.resolve(layout: .vertical, stored: .corrupted, screens: [screen], visibleFrames: [visible], mainIndex: 0).shouldSave)
+        XCTAssertNil(HUDPositionDecision.resolve(layout: .vertical, stored: .missing, screens: [], visibleFrames: [], mainIndex: nil).frame)
+    }
+
     private func record(x: Double, y: Double = 0.5) -> HUDPositionRecord {
         HUDPositionRecord(version: 3, displayUUID: "screen", legacyDisplayID: 1, displayName: "Main", pixelWidth: 2400, pixelHeight: 1600, relativeX: x, relativeY: y)
     }

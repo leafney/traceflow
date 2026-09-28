@@ -59,17 +59,34 @@ public struct HUDScreenIdentity: Equatable {
 
 public enum HUDPositionGeometry {
     public static func matchingScreen(for position: HUDPositionRecord, among screens: [HUDScreenIdentity]) -> Int? {
-        if let uuid = position.displayUUID,
-           let index = screens.firstIndex(where: { $0.uuid == uuid }) { return index }
-        if let id = position.legacyDisplayID,
-           let index = screens.firstIndex(where: { $0.displayID == id }) { return index }
-        if let name = position.displayName,
-           let width = position.pixelWidth, let height = position.pixelHeight,
-           let index = screens.firstIndex(where: { $0.name == name && $0.pixelWidth == width && $0.pixelHeight == height }) { return index }
-        if let name = position.displayName {
-            return screens.firstIndex(where: { $0.name == name })
-        }
+        if case let .unique(index) = screenMatch(for: position, among: screens) { return index }
         return nil
+    }
+
+    public static func screenMatch(for position: HUDPositionRecord, among screens: [HUDScreenIdentity]) -> HUDScreenMatch {
+        if let uuid = position.displayUUID {
+            let exact = screens.indices.filter { screens[$0].uuid == uuid }
+            if exact.count == 1 { return .unique(exact[0]) }
+            if exact.count > 1 { return .ambiguous }
+            // A different available UUID is a conflicting physical identity.
+            return compatibleMatch(position, screens: screens, candidates: screens.indices.filter { screens[$0].uuid == nil })
+        }
+        return compatibleMatch(position, screens: screens, candidates: Array(screens.indices))
+    }
+
+    private static func compatibleMatch(_ position: HUDPositionRecord, screens: [HUDScreenIdentity], candidates: [Int]) -> HUDScreenMatch {
+        let matches = candidates.filter { index in
+            let screen = screens[index]
+            if let name = position.displayName, screen.name != name { return false }
+            if let width = position.pixelWidth, screen.pixelWidth != width { return false }
+            if let height = position.pixelHeight, screen.pixelHeight != height { return false }
+            if position.displayName == nil && position.pixelWidth == nil && position.pixelHeight == nil {
+                return position.legacyDisplayID != nil && screen.displayID == position.legacyDisplayID
+            }
+            return true
+        }
+        if matches.count == 1 { return .unique(matches[0]) }
+        return matches.isEmpty ? .missing : .ambiguous
     }
 
     public static func size(for layout: HUDLayoutMode) -> CGSize {
@@ -119,6 +136,30 @@ public enum HUDPositionGeometry {
     private static func clamp(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
         return min(1, max(0, value))
+    }
+}
+
+public enum HUDScreenMatch: Equatable {
+    case unique(Int)
+    case missing
+    case ambiguous
+}
+
+public struct HUDPositionDecision: Equatable {
+    public let frame: CGRect?
+    public let isTemporary: Bool
+    public let shouldSave: Bool
+
+    public static func resolve(layout: HUDLayoutMode, stored: HUDPositionLoadResult, screens: [HUDScreenIdentity], visibleFrames: [CGRect], mainIndex: Int?) -> Self {
+        if case let .loaded(record) = stored,
+           case let .unique(index) = HUDPositionGeometry.screenMatch(for: record, among: screens),
+           visibleFrames.indices.contains(index) {
+            return Self(frame: HUDPositionGeometry.restoredFrame(for: layout, relativeX: record.relativeX, relativeY: record.relativeY, visible: visibleFrames[index]), isTemporary: false, shouldSave: false)
+        }
+        guard let index = mainIndex, visibleFrames.indices.contains(index) else {
+            return Self(frame: nil, isTemporary: true, shouldSave: false)
+        }
+        return Self(frame: HUDPositionGeometry.defaultFrame(for: layout, visible: visibleFrames[index]), isTemporary: stored != .missing, shouldSave: stored == .missing)
     }
 }
 

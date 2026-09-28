@@ -2,10 +2,21 @@ import Foundation
 import CoreFoundation
 
 public enum HUDLayoutMode: String, CaseIterable, Identifiable, Sendable {
-    case horizontal
-    case vertical
+    case horizontalLeft
+    case horizontalRight
+    case verticalTop
+    case verticalBottom
 
     public var id: String { rawValue }
+    public var isHorizontal: Bool { self == .horizontalLeft || self == .horizontalRight }
+    public var lightsAtLeadingEdge: Bool { self == .horizontalLeft || self == .verticalTop }
+    public var sourceLayout: Self? {
+        switch self {
+        case .horizontalLeft: .horizontalRight
+        case .verticalTop: .verticalBottom
+        case .horizontalRight, .verticalBottom: nil
+        }
+    }
 }
 
 public enum HUDGlowMode: String, CaseIterable, Identifiable, Sendable {
@@ -37,7 +48,13 @@ public final class HUDPreferences {
     }
 
     public func loadLayoutMode() -> HUDLayoutMode {
-        let mode = defaults.string(forKey: Self.layoutKey).flatMap(HUDLayoutMode.init(rawValue:)) ?? .horizontal
+        let stored = defaults.string(forKey: Self.layoutKey)
+        let mode: HUDLayoutMode
+        switch stored {
+        case "horizontal": mode = .horizontalRight
+        case "vertical": mode = .verticalBottom
+        default: mode = stored.flatMap(HUDLayoutMode.init(rawValue:)) ?? .horizontalRight
+        }
         defaults.set(mode.rawValue, forKey: Self.layoutKey)
         return mode
     }

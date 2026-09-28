@@ -24,8 +24,23 @@ final class HUDPreferencesTests: XCTestCase {
 
         XCTAssertEqual(preferences.loadGlowMode(), .standard)
         XCTAssertEqual(defaults.string(forKey: HUDPreferences.glowKey), HUDGlowMode.standard.rawValue)
-        XCTAssertEqual(preferences.loadLayoutMode(), .horizontal)
-        XCTAssertEqual(defaults.string(forKey: HUDPreferences.layoutKey), HUDLayoutMode.horizontal.rawValue)
+        XCTAssertEqual(preferences.loadLayoutMode(), .horizontalRight)
+        XCTAssertEqual(defaults.string(forKey: HUDPreferences.layoutKey), HUDLayoutMode.horizontalRight.rawValue)
+    }
+
+    func testLegacyDirectionsMigrateWithoutChangingTheirMeaning() {
+        for (legacy, expected) in [("horizontal", HUDLayoutMode.horizontalRight), ("vertical", .verticalBottom)] {
+            defaults.set(legacy, forKey: HUDPreferences.layoutKey)
+            XCTAssertEqual(HUDPreferences(defaults: defaults).loadLayoutMode(), expected)
+            XCTAssertEqual(defaults.string(forKey: HUDPreferences.layoutKey), expected.rawValue)
+        }
+    }
+
+    func testEveryLayoutSurvivesReload() {
+        for layout in HUDLayoutMode.allCases {
+            HUDPreferences(defaults: defaults).saveLayoutMode(layout)
+            XCTAssertEqual(HUDPreferences(defaults: defaults).loadLayoutMode(), layout)
+        }
     }
 
     func testLegacyLowAndMediumMigrateToStandard() {
@@ -61,9 +76,9 @@ final class HUDPreferencesTests: XCTestCase {
 
         let preferences = HUDPreferences(defaults: defaults)
         XCTAssertEqual(preferences.loadGlowMode(), .standard)
-        XCTAssertEqual(preferences.loadLayoutMode(), .horizontal)
+        XCTAssertEqual(preferences.loadLayoutMode(), .horizontalRight)
         XCTAssertEqual(defaults.string(forKey: HUDPreferences.glowKey), HUDGlowMode.standard.rawValue)
-        XCTAssertEqual(defaults.string(forKey: HUDPreferences.layoutKey), HUDLayoutMode.horizontal.rawValue)
+        XCTAssertEqual(defaults.string(forKey: HUDPreferences.layoutKey), HUDLayoutMode.horizontalRight.rawValue)
     }
 
     func testInvalidLegacyTypesDoNotBecomeOldNumericChoice() {
@@ -78,11 +93,11 @@ final class HUDPreferencesTests: XCTestCase {
     func testSavingNewValuesSurvivesRepeatedLoads() {
         let preferences = HUDPreferences(defaults: defaults)
         preferences.saveGlowMode(.strong)
-        preferences.saveLayoutMode(.vertical)
+        preferences.saveLayoutMode(.verticalBottom)
         defaults.set(0, forKey: HUDPreferences.legacyGlowKey)
 
         XCTAssertEqual(preferences.loadGlowMode(), .strong)
-        XCTAssertEqual(preferences.loadLayoutMode(), .vertical)
+        XCTAssertEqual(preferences.loadLayoutMode(), .verticalBottom)
     }
 
     func testPinnedDefaultsToFalseRejectsInvalidStorageAndSurvivesReload() {

@@ -162,6 +162,32 @@ final class HUDPositionGeometryTests: XCTestCase {
         XCTAssertNil(HUDPositionDecision.resolve(layout: .vertical, stored: .missing, screens: [], visibleFrames: [], mainIndex: nil).frame)
     }
 
+    func testUserChoiceDuringFallbackReplacesTargetAndLayoutsStayIndependent() {
+        let domain = "HUDRecoverySequence.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = HUDPositionStore(defaults: defaults)
+        let original = record(x: 0.7)
+        store.save(original, for: .horizontal)
+        let main = HUDScreenIdentity(uuid: "main", displayID: 2, name: "Laptop", pixelWidth: 1200, pixelHeight: 800)
+        let external = HUDScreenIdentity(uuid: "screen", displayID: 1, name: "Main", pixelWidth: 2400, pixelHeight: 1600)
+        for _ in 0..<3 {
+            let decision = HUDPositionDecision.resolve(layout: .horizontal, stored: store.loadResult(.horizontal), screens: [main], visibleFrames: [visible], mainIndex: 0)
+            XCTAssertTrue(decision.isTemporary)
+            XCTAssertFalse(decision.shouldSave)
+            XCTAssertEqual(store.load(.horizontal), original)
+        }
+        let vertical = HUDPositionDecision.resolve(layout: .vertical, stored: store.loadResult(.vertical), screens: [main], visibleFrames: [visible], mainIndex: 0)
+        XCTAssertTrue(vertical.shouldSave)
+        XCTAssertEqual(store.load(.horizontal), original)
+
+        let chosen = HUDPositionRecord(version: 3, displayUUID: "main", legacyDisplayID: 2, displayName: "Laptop", pixelWidth: 1200, pixelHeight: 800, relativeX: 0.25, relativeY: 0.4)
+        store.save(chosen, for: .horizontal)
+        let afterReconnect = HUDPositionDecision.resolve(layout: .horizontal, stored: store.loadResult(.horizontal), screens: [main, external], visibleFrames: [visible, visible.offsetBy(dx: 2000, dy: 0)], mainIndex: 0)
+        XCTAssertEqual(afterReconnect.frame, HUDPositionGeometry.restoredFrame(for: .horizontal, relativeX: 0.25, relativeY: 0.4, visible: visible))
+        XCTAssertFalse(afterReconnect.shouldSave)
+    }
+
     private func record(x: Double, y: Double = 0.5) -> HUDPositionRecord {
         HUDPositionRecord(version: 3, displayUUID: "screen", legacyDisplayID: 1, displayName: "Main", pixelWidth: 2400, pixelHeight: 1600, relativeX: x, relativeY: y)
     }

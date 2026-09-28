@@ -14,5 +14,6 @@ let package = Package(
         .executableTarget(name: "TraceflowNotify", dependencies: ["TraceflowCore"]),
         .executableTarget(name: "TraceflowApp", dependencies: ["TraceflowCore"]),
         .testTarget(name: "TraceflowCoreTests", dependencies: ["TraceflowCore"]),
+        .testTarget(name: "TraceflowAppTests", dependencies: ["TraceflowApp", "TraceflowCore"]),
     ]
 )

@@ -12,6 +12,9 @@ final class NonActivatingPanel: NSPanel {
 final class HUDDragView: NSView {
     var dragStarted: (() -> Void)?
     var dragFinished: ((Bool) -> Void)?
+    private var drag: HUDDragTracking?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         super.hitTest(point) == nil ? nil : self
@@ -19,10 +22,19 @@ final class HUDDragView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
-        let original = window.frame
+        drag = HUDDragTracking(pointer: NSEvent.mouseLocation, origin: window.frame.origin)
         dragStarted?()
-        window.performDrag(with: event)
-        dragFinished?(window.frame.origin != original.origin)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let window, let drag else { return }
+        window.setFrameOrigin(drag.origin(at: NSEvent.mouseLocation))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let drag else { return }
+        self.drag = nil
+        dragFinished?(window.map { $0.frame.origin != drag.initialOrigin } ?? false)
     }
 }
 
@@ -54,7 +66,8 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.isMovableByWindowBackground = true
+        // Our explicit mouse-up path commits the drag; avoid a second AppKit drag.
+        panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
         panel.contentView = content.container
         super.init(window: panel)

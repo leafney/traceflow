@@ -218,4 +218,10 @@ final class HUDPositionGeometryTests: XCTestCase {
     private func record(x: Double, y: Double = 0.5) -> HUDPositionRecord {
         HUDPositionRecord(version: 3, displayUUID: "screen", legacyDisplayID: 1, displayName: "Main", pixelWidth: 2400, pixelHeight: 1600, relativeX: x, relativeY: y)
     }
+
+    func testDragUsesGlobalPointerDeltaAcrossScreens() {
+        let drag = HUDDragTracking(pointer: CGPoint(x: 900, y: 300), origin: CGPoint(x: 800, y: 250))
+        XCTAssertEqual(drag.origin(at: CGPoint(x: -500, y: 700)), CGPoint(x: -600, y: 650))
+        XCTAssertEqual(drag.origin(at: CGPoint(x: 900, y: 300)), drag.initialOrigin)
+    }
 }

@@ -160,6 +160,21 @@ public enum HUDScreenMatch: Equatable {
     case ambiguous
 }
 
+public struct HUDDragTracking {
+    public let initialOrigin: CGPoint
+    private let initialPointer: CGPoint
+
+    public init(pointer: CGPoint, origin: CGPoint) {
+        initialPointer = pointer
+        initialOrigin = origin
+    }
+
+    public func origin(at pointer: CGPoint) -> CGPoint {
+        CGPoint(x: initialOrigin.x + pointer.x - initialPointer.x,
+                y: initialOrigin.y + pointer.y - initialPointer.y)
+    }
+}
+
 public enum HUDPositionRetryPolicy {
     public static let duration: TimeInterval = 10
     public static let interval: TimeInterval = 1

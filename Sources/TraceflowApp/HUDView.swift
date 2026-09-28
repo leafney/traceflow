@@ -13,10 +13,9 @@ struct HUDView: View {
             case .vertical: verticalContent
             }
         }
-        .frame(width: model.hudLayoutMode == .horizontal ? HUDMetrics.longAxis : HUDMetrics.shortAxis,
-               height: model.hudLayoutMode == .horizontal ? HUDMetrics.shortAxis : HUDMetrics.longAxis)
-        .background(Color.black.opacity(colorScheme == .dark ? 0.18 : 0.06), in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(colorScheme == .dark ? 0.16 : 0.24), lineWidth: 0.5))
+        .frame(width: model.hudLayoutMode == .horizontal ? (380 + 40 * model.hudIconFraction) : HUDMetrics.shortAxis,
+               height: model.hudLayoutMode == .horizontal ? HUDMetrics.shortAxis : (380 + 40 * model.hudIconFraction))
+        .overlay(Capsule().stroke(.white.opacity((colorScheme == .dark ? 0.16 : 0.24) * HUDBackgroundAppearance(model.hudBackgroundTransparency).backgroundAlpha), lineWidth: 0.5))
         .contentShape(Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
@@ -24,7 +23,7 @@ struct HUDView: View {
 
     private var horizontalContent: some View {
         HStack(spacing: 0) {
-            icon.frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
+            icon.opacity(model.hudIconFraction).frame(width: HUDMetrics.iconLength * model.hudIconFraction, height: HUDMetrics.shortAxis).clipped()
             ZStack {
                 title
                     .frame(width: HUDMetrics.titleTextLength, alignment: .leading)
@@ -42,7 +41,7 @@ struct HUDView: View {
 
     private var verticalContent: some View {
         VStack(spacing: 0) {
-            icon.frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength)
+            icon.opacity(model.hudIconFraction).frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
             ZStack {
                 VerticalMixedTitleView(title: model.displayedSession?.displayTitle ?? "Traceflow")
                     .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)

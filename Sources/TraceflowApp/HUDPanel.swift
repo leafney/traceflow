@@ -27,8 +27,8 @@ final class HUDDragView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window, canBeginDrag?() == true else { return }
-        drag = HUDDragTracking(pointer: NSEvent.mouseLocation, origin: window.frame.origin)
         dragStarted?()
+        drag = HUDDragTracking(pointer: NSEvent.mouseLocation, origin: window.frame.origin)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -49,6 +49,12 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private let positions: HUDPositionStore
     private weak var model: AppModel?
     private let hostingView: NSHostingView<HUDView>
+    private let background: HUDBackgroundView
+    private var transparency: Int
+    private var transparencyObserver: AnyCancellable?
+    private var accessibilityObserver: NSObjectProtocol?
+    private var transitionTimer: Timer?
+    private var transitionTarget: NSRect?
     private var layout: HUDLayoutMode
     private var interaction: HUDInteractionState
     private var layoutObserver: AnyCancellable?
@@ -64,26 +70,31 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         positions = HUDPositionStore(defaults: defaults)
         layout = model.hudLayoutMode
         interaction = HUDInteractionState(isPinned: model.isHUDPinned)
-        let size = HUDPositionGeometry.size(for: layout)
+        transparency = model.hudBackgroundTransparency
+        let size = HUDBackgroundAppearance(transparency).size(layout)
         let panel = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         let content = Self.makeGlassContent(model: model, size: size)
         hostingView = content.hostingView
+        background = content.background
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = transparency < 100
         // Our explicit mouse-up path commits the drag; avoid a second AppKit drag.
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
         panel.contentView = content.container
         panel.ignoresMouseEvents = interaction.ignoresMouseEvents
         super.init(window: panel)
+        background.update(transparency)
         content.container.canBeginDrag = { [weak self] in
             self?.interaction.canBeginDrag ?? false
         }
         content.container.dragStarted = { [weak self] in
-            guard let self, self.interaction.beginDrag() else { return }
+            guard let self else { return }
+            self.finishTransition()
+            guard self.interaction.beginDrag() else { return }
             self.positionRetry?.cancel()
             self.positionRetryDeadline = nil
         }
@@ -93,6 +104,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
                 self.savePosition()
                 self.isTemporaryPosition = false
             } else { self.ensureVisible() }
+            self.updateGeometry(animated: true)
         }
         panel.delegate = self
         restorePosition()
@@ -102,6 +114,21 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             // replacement root view observes the new layout mode, not the old one.
             DispatchQueue.main.async { self?.switchLayout(to: newLayout) }
         }
+        transparencyObserver = model.$hudBackgroundTransparency.dropFirst().sink { [weak self] value in
+            guard let self else { return }
+            self.transparency = value
+            self.background.update(value)
+            self.window?.hasShadow = value < 100
+            self.window?.invalidateShadow()
+            if !self.interaction.isDragging { self.updateGeometry(animated: true) }
+        }
+        accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.background.update(self.transparency)
+                if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { self.finishTransition() }
+            }
+        }
         pinObserver = model.$isHUDPinned.dropFirst().sink { [weak self] pinned in
             self?.setPinned(pinned)
         }
@@ -109,7 +136,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
 
     required init?(coder: NSCoder) { nil }
     func show() { restorePosition(); window?.orderFrontRegardless() }
-    func hide() { window?.orderOut(nil) }
+    func hide() { window?.orderOut(nil); finishTransition(); updateGeometry(animated: false) }
 
     private func setPinned(_ pinned: Bool) {
         guard let window else { return }
@@ -126,11 +153,12 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func resetPosition() {
+        finishTransition()
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         positionRetry?.cancel()
         positionRetryDeadline = nil
         isRestoringPosition = true
-        window?.setFrame(HUDPositionGeometry.defaultFrame(for: layout, visible: screen.visibleFrame), display: true)
+        setDisplayFrame(HUDBackgroundAppearance(transparency).displayFrame(HUDPositionGeometry.defaultFrame(for: layout, visible: screen.visibleFrame), layout: layout))
         isRestoringPosition = false
         savePosition()
         isTemporaryPosition = false
@@ -158,35 +186,66 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func switchLayout(to newLayout: HUDLayoutMode) {
-        guard newLayout != layout, let window, let model else { return }
-        isRestoringPosition = true
-        for step in HUDLayoutTransitionPlanner.steps(from: layout, to: newLayout) {
-            switch step {
-            case .save:
-                break // Drag completion already saved the user's permanent position.
-            case let .resize(targetLayout, size):
-                layout = targetLayout
-                window.setContentSize(size)
-                window.contentView?.frame = NSRect(origin: .zero, size: size)
-                window.contentView?.layer?.cornerRadius = min(size.width, size.height) / 2
-                // Recreate the root after the published layout value has settled.
-                // This prevents the first vertical frame from retaining horizontal
-                // layout measurements until an unrelated session update arrives.
-                hostingView.rootView = HUDView(model: model)
-                hostingView.frame = NSRect(origin: .zero, size: size)
-                hostingView.needsLayout = true
-                hostingView.layoutSubtreeIfNeeded()
-                hostingView.needsDisplay = true
-                hostingView.displayIfNeeded()
-            case .restore:
-                isRestoringPosition = false
-                restorePosition()
+        guard newLayout != layout else { return }
+        finishTransition()
+        (window?.contentView as? HUDDragView)?.cancelDrag()
+        _ = interaction.finishDrag()
+        layout = newLayout
+        restorePosition()
+    }
+
+    private func setDisplayFrame(_ frame: NSRect) {
+        window?.setFrame(frame, display: true)
+        hostingView.frame = NSRect(origin: .zero, size: frame.size)
+    }
+
+    private func finishTransition() {
+        transitionTimer?.invalidate()
+        transitionTimer = nil
+        if let target = transitionTarget { setDisplayFrame(target) }
+        transitionTarget = nil
+        model?.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
+    }
+
+    private func updateGeometry(animated: Bool) {
+        guard let window, !interaction.isDragging else { return }
+        let reference = HUDBackgroundAppearance.referenceFrame(transitionTarget ?? window.frame, layout: layout)
+        let appearance = HUDBackgroundAppearance(transparency)
+        var target = appearance.displayFrame(reference, layout: layout)
+        if let screen = bestScreen(for: window.frame) { target = HUDPositionGeometry.clamped(target, to: screen.visibleFrame) }
+        if transitionTimer != nil, transitionTarget == target { return }
+        transitionTimer?.invalidate()
+        transitionTimer = nil
+        let start = window.frame
+        let fraction = model?.hudIconFraction ?? 1
+        let endFraction = appearance.compact ? 0.0 : 1.0
+        transitionTarget = target
+        guard animated, window.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+              start != target || fraction != endFraction else {
+            finishTransition()
+            return
+        }
+        let began = Date()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let progress = min(1, Date().timeIntervalSince(began) / 0.2)
+                let eased = progress * progress * (3 - 2 * progress)
+                self.model?.hudIconFraction = fraction + (endFraction - fraction) * eased
+                self.setDisplayFrame(NSRect(x: start.minX + (target.minX - start.minX) * eased,
+                    y: start.minY + (target.minY - start.minY) * eased,
+                    width: start.width + (target.width - start.width) * eased,
+                    height: start.height + (target.height - start.height) * eased))
+                if progress >= 1 { self.finishTransition() }
             }
         }
+        transitionTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func restorePosition() {
-        guard let window, !interaction.isDragging else { return }
+        guard window != nil, !interaction.isDragging else { return }
+        finishTransition()
         isRestoringPosition = true
         defer { isRestoringPosition = false }
         let positionResult = positions.loadResult(layout)
@@ -206,7 +265,12 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         let mainIndex = NSScreen.main.flatMap { main in screens.firstIndex { $0 === main } } ?? screens.indices.first
         let decision = HUDPositionDecision.resolve(layout: layout, stored: positionResult, screens: identities, visibleFrames: screens.map(\.visibleFrame), mainIndex: mainIndex)
         isTemporaryPosition = decision.isTemporary
-        if let frame = decision.frame, frame != window.frame { window.setFrame(frame, display: true) }
+        if let frame = decision.frame {
+            var display = HUDBackgroundAppearance(transparency).displayFrame(frame, layout: layout)
+            let screen = (!decision.isTemporary ? positions.load(layout).flatMap { self.screen(matching: $0) } : nil) ?? NSScreen.main
+            if let screen { display = HUDPositionGeometry.clamped(display, to: screen.visibleFrame) }
+            setDisplayFrame(display)
+        }
         if decision.shouldSave { savePosition() }
     }
 
@@ -215,7 +279,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         let frame = NSRectFromString(saved)
         guard frame.width > 0, frame.height > 0, let screen = bestScreen(for: frame) else { return false }
         let resized = NSRect(origin: frame.origin, size: HUDPositionGeometry.size(for: .horizontal))
-        window?.setFrame(HUDPositionGeometry.clamped(resized, to: screen.visibleFrame), display: true)
+        setDisplayFrame(HUDPositionGeometry.clamped(HUDBackgroundAppearance(transparency).displayFrame(resized, layout: layout), to: screen.visibleFrame))
         defaults.removeObject(forKey: "hudFrame")
         return true
     }
@@ -224,7 +288,8 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         guard let frame = window?.frame, let screen = bestScreen(for: frame) else { return }
         let visible = screen.visibleFrame
         let pixels = pixelSize(of: screen)
-        let relative = HUDPositionGeometry.relativePosition(of: frame, in: visible)
+        let reference = HUDBackgroundAppearance.referenceFrame(frame, layout: layout)
+        let relative = HUDPositionGeometry.relativePosition(of: reference, in: visible)
         let position = HUDPositionRecord(
             version: 3,
             displayUUID: displayUUID(for: screen),
@@ -233,7 +298,9 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             pixelWidth: pixels.width,
             pixelHeight: pixels.height,
             relativeX: relative.x,
-            relativeY: relative.y
+            relativeY: relative.y,
+            anchorX: ((layout == .horizontal ? reference.maxX : reference.minX) - visible.minX) / visible.width,
+            anchorY: (reference.minY - visible.minY) / visible.height
         )
         positions.save(position, for: layout)
     }
@@ -273,24 +340,18 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         return screens[index]
     }
 
-    private static func makeGlassContent(model: AppModel, size: NSSize) -> (container: HUDDragView, hostingView: NSHostingView<HUDView>) {
+    private static func makeGlassContent(model: AppModel, size: NSSize) -> (container: HUDDragView, hostingView: NSHostingView<HUDView>, background: HUDBackgroundView) {
         let container = HUDDragView(frame: NSRect(origin: .zero, size: size))
         container.wantsLayer = true
         container.layer?.cornerRadius = min(size.width, size.height) / 2
-        let effect = NSVisualEffectView(frame: container.bounds)
-        effect.autoresizingMask = [.width, .height]
-        effect.material = .hudWindow
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = min(size.width, size.height) / 2
-        effect.layer?.masksToBounds = true
-        container.addSubview(effect)
+        let background = HUDBackgroundView(frame: container.bounds)
+        background.autoresizingMask = [.width, .height]
+        container.addSubview(background)
         let hosting = NSHostingView(rootView: HUDView(model: model))
         hosting.frame = container.bounds
         hosting.autoresizingMask = [.width, .height]
         container.addSubview(hosting)
-        return (container, hosting)
+        return (container, hosting, background)
     }
 }
 

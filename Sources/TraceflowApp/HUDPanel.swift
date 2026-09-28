@@ -200,9 +200,10 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func switchLayout(to newLayout: HUDLayoutMode) {
-        guard newLayout != layout else { return }
+        guard newLayout == model?.hudLayoutMode, newLayout != layout else { return }
         cancelInteraction()
         layout = newLayout
+        model?.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
         restorePosition()
     }
 
@@ -256,19 +257,19 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         finishTransition()
         isRestoringPosition = true
         defer { isRestoringPosition = false }
-        let positionResult = positions.loadResult(layout)
-        if case .corrupted = positionResult {
-            model?.logDiagnostic("error=hud_position_corrupted layout=\(layout.rawValue)")
-        }
-        if layout == .horizontal, case .missing = positionResult, migrateLegacyFrame() {
-            savePosition()
-            isTemporaryPosition = false
-            return
-        }
         let screens = NSScreen.screens
         let identities = screens.map { screen in
             let pixels = pixelSize(of: screen)
             return HUDScreenIdentity(uuid: displayUUID(for: screen), displayID: displayID(for: screen), name: screen.localizedName, pixelWidth: pixels.width, pixelHeight: pixels.height)
+        }
+        let positionResult = positions.seedIfMissing(layout, screens: identities, visibleFrames: screens.map(\.visibleFrame))
+        if case .corrupted = positionResult {
+            model?.logDiagnostic("error=hud_position_corrupted layout=\(layout.rawValue)")
+        }
+        if layout == .horizontalRight, case .missing = positionResult, migrateLegacyFrame() {
+            savePosition()
+            isTemporaryPosition = false
+            return
         }
         let mainIndex = NSScreen.main.flatMap { main in screens.firstIndex { $0 === main } } ?? screens.indices.first
         let decision = HUDPositionDecision.resolve(layout: layout, stored: positionResult, screens: identities, visibleFrames: screens.map(\.visibleFrame), mainIndex: mainIndex)
@@ -285,7 +286,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         guard let saved = defaults.string(forKey: "hudFrame") else { return false }
         let frame = NSRectFromString(saved)
         guard frame.width > 0, frame.height > 0, let screen = bestScreen(for: frame) else { return false }
-        let resized = NSRect(origin: frame.origin, size: HUDPositionGeometry.size(for: .horizontal))
+        let resized = NSRect(origin: frame.origin, size: HUDPositionGeometry.size(for: .horizontalRight))
         geometry.restoreReference(resized)
         if let frame = geometry.target(layout: layout, visible: screen.visibleFrame) { setDisplayFrame(frame) }
         defaults.removeObject(forKey: "hudFrame")
@@ -307,8 +308,8 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             pixelHeight: pixels.height,
             relativeX: relative.x,
             relativeY: relative.y,
-            anchorX: ((layout == .horizontal ? reference.maxX : reference.minX) - visible.minX) / visible.width,
-            anchorY: (reference.minY - visible.minY) / visible.height
+            anchorX: ((layout == .horizontalRight ? reference.maxX : reference.minX) - visible.minX) / visible.width,
+            anchorY: ((layout == .verticalTop ? reference.maxY : reference.minY) - visible.minY) / visible.height
         )
         positions.save(position, for: layout)
     }

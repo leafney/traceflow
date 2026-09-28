@@ -9,12 +9,12 @@ struct HUDView: View {
     var body: some View {
         Group {
             switch model.hudLayoutMode {
-            case .horizontal: horizontalContent
-            case .vertical: verticalContent
+            case .horizontalLeft, .horizontalRight: horizontalContent
+            case .verticalTop, .verticalBottom: verticalContent
             }
         }
-        .frame(width: model.hudLayoutMode == .horizontal ? (380 + 40 * model.hudIconFraction) : HUDMetrics.shortAxis,
-               height: model.hudLayoutMode == .horizontal ? HUDMetrics.shortAxis : (380 + 40 * model.hudIconFraction))
+        .frame(width: model.hudLayoutMode.isHorizontal ? (380 + 40 * model.hudIconFraction) : HUDMetrics.shortAxis,
+               height: model.hudLayoutMode.isHorizontal ? HUDMetrics.shortAxis : (380 + 40 * model.hudIconFraction))
         .overlay(Capsule().stroke(.white.opacity((colorScheme == .dark ? 0.16 : 0.24) * HUDBackgroundAppearance(model.hudBackgroundTransparency).backgroundAlpha), lineWidth: 0.5))
         .contentShape(Capsule())
         .accessibilityElement(children: .ignore)
@@ -23,7 +23,8 @@ struct HUDView: View {
 
     private var horizontalContent: some View {
         HStack(spacing: 0) {
-            icon.opacity(model.hudIconFraction).frame(width: HUDMetrics.iconLength * model.hudIconFraction, height: HUDMetrics.shortAxis).clipped()
+            if model.hudLayoutMode == .horizontalLeft { horizontalLights }
+            horizontalIconIfTrailing(false)
             ZStack {
                 title
                     .frame(width: HUDMetrics.titleTextLength, alignment: .leading)
@@ -34,14 +35,27 @@ struct HUDView: View {
             .frame(width: HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2, height: HUDMetrics.shortAxis)
             .clipped()
             .transaction { $0.animation = titleAnimation }
-            HStack(spacing: HUDMetrics.lightSpacing) { lights }
-                .frame(width: HUDMetrics.lightAreaLength, height: HUDMetrics.shortAxis)
+            horizontalIconIfTrailing(true)
+            if model.hudLayoutMode == .horizontalRight { horizontalLights }
         }
+    }
+
+    @ViewBuilder private func horizontalIconIfTrailing(_ trailing: Bool) -> some View {
+        if (model.hudLayoutMode == .horizontalLeft) == trailing {
+            icon.opacity(model.hudIconFraction)
+                .frame(width: HUDMetrics.iconLength * model.hudIconFraction, height: HUDMetrics.shortAxis).clipped()
+        }
+    }
+
+    private var horizontalLights: some View {
+        HStack(spacing: HUDMetrics.lightSpacing) { lights }
+            .frame(width: HUDMetrics.lightAreaLength, height: HUDMetrics.shortAxis)
     }
 
     private var verticalContent: some View {
         VStack(spacing: 0) {
-            icon.opacity(model.hudIconFraction).frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
+            if model.hudLayoutMode == .verticalTop { verticalLights }
+            verticalIconIfBottom(false)
             ZStack {
                 VerticalMixedTitleView(title: model.displayedSession?.displayTitle ?? "Traceflow", color: model.hudTitleColor)
                     .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
@@ -52,9 +66,21 @@ struct HUDView: View {
             .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2)
             .clipped()
             .transaction { $0.animation = titleAnimation }
-            VStack(spacing: HUDMetrics.lightSpacing) { lights }
-                .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.lightAreaLength)
+            verticalIconIfBottom(true)
+            if model.hudLayoutMode == .verticalBottom { verticalLights }
         }
+    }
+
+    @ViewBuilder private func verticalIconIfBottom(_ bottom: Bool) -> some View {
+        if (model.hudLayoutMode == .verticalTop) == bottom {
+            icon.opacity(model.hudIconFraction)
+                .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
+        }
+    }
+
+    private var verticalLights: some View {
+        VStack(spacing: HUDMetrics.lightSpacing) { lights }
+            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.lightAreaLength)
     }
 
     private var icon: some View {

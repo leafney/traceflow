@@ -10,9 +10,11 @@ struct SettingsView: View {
         Form {
             Section("常规") {
                 Toggle("显示 HUD", isOn: $model.isHUDVisible)
-                Picker("显示方向", selection: $model.hudLayoutMode) {
-                    Text("横向").tag(HUDLayoutMode.horizontal)
-                    Text("纵向").tag(HUDLayoutMode.vertical)
+                Picker("HUD 布局", selection: $model.hudLayoutMode) {
+                    Text("横向左").tag(HUDLayoutMode.horizontalLeft)
+                    Text("横向右").tag(HUDLayoutMode.horizontalRight)
+                    Text("竖向上").tag(HUDLayoutMode.verticalTop)
+                    Text("竖向下").tag(HUDLayoutMode.verticalBottom)
                 }
                 Picker("展示时长", selection: $model.timingMode) {
                     Text("统一时长").tag(CarouselTimingMode.uniform)

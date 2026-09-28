@@ -23,13 +23,16 @@ public struct HUDPositionRecord: Codable, Equatable {
     public let pixelHeight: Int?
     public let relativeX: Double
     public let relativeY: Double
+    public let anchorX: Double?
+    public let anchorY: Double?
 
     enum CodingKeys: String, CodingKey {
         case version, displayUUID, displayName, pixelWidth, pixelHeight, relativeX, relativeY
+        case anchorX, anchorY
         case legacyDisplayID = "displayID"
     }
 
-    public init(version: Int, displayUUID: String?, legacyDisplayID: UInt32?, displayName: String?, pixelWidth: Int?, pixelHeight: Int?, relativeX: Double, relativeY: Double) {
+    public init(version: Int, displayUUID: String?, legacyDisplayID: UInt32?, displayName: String?, pixelWidth: Int?, pixelHeight: Int?, relativeX: Double, relativeY: Double, anchorX: Double? = nil, anchorY: Double? = nil) {
         self.version = version
         self.displayUUID = displayUUID
         self.legacyDisplayID = legacyDisplayID
@@ -38,6 +41,8 @@ public struct HUDPositionRecord: Codable, Equatable {
         self.pixelHeight = pixelHeight
         self.relativeX = relativeX
         self.relativeY = relativeY
+        self.anchorX = anchorX
+        self.anchorY = anchorY
     }
 }
 
@@ -194,7 +199,16 @@ public struct HUDPositionDecision: Equatable {
         if case let .loaded(record) = stored,
            case let .unique(index) = HUDPositionGeometry.screenMatch(for: record, among: screens),
            visibleFrames.indices.contains(index) {
-            return Self(frame: HUDPositionGeometry.restoredFrame(for: layout, relativeX: record.relativeX, relativeY: record.relativeY, visible: visibleFrames[index]), isTemporary: false, shouldSave: false)
+            let visible = visibleFrames[index]
+            let frame: CGRect
+            if let x = record.anchorX, let y = record.anchorY, x.isFinite, y.isFinite {
+                let size = HUDPositionGeometry.size(for: layout)
+                frame = CGRect(x: visible.minX + x * visible.width - (layout == .horizontal ? size.width : 0),
+                               y: visible.minY + y * visible.height, width: size.width, height: size.height)
+            } else {
+                frame = HUDPositionGeometry.restoredFrame(for: layout, relativeX: record.relativeX, relativeY: record.relativeY, visible: visible)
+            }
+            return Self(frame: frame, isTemporary: false, shouldSave: false)
         }
         guard let index = mainIndex, visibleFrames.indices.contains(index) else {
             return Self(frame: nil, isTemporary: true, shouldSave: false)

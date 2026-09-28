@@ -69,6 +69,22 @@ final class HUDPositionGeometryTests: XCTestCase {
         XCTAssertEqual(store.load(.verticalBottom)?.relativeX, 0.4)
     }
 
+    func testAllFourLayoutKeysRemainIndependentAfterReload() {
+        let name = "HUDFourLayoutKeys.\(UUID())"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = HUDPositionStore(defaults: defaults)
+        let layouts = HUDLayoutMode.allCases
+        XCTAssertEqual(Set(layouts.map(HUDPositionStore.key(for:))).count, 4)
+        for (index, layout) in layouts.enumerated() {
+            store.save(record(x: Double(index + 1) / 10), for: layout)
+        }
+        let reloaded = HUDPositionStore(defaults: defaults)
+        for (index, layout) in layouts.enumerated() {
+            XCTAssertEqual(reloaded.load(layout)?.relativeX, Double(index + 1) / 10)
+        }
+    }
+
     func testNewLayoutsSeedOnceAndKeepSourcePosition() {
         let name = "HUDPositionSeedTests.\(UUID())"
         let defaults = UserDefaults(suiteName: name)!

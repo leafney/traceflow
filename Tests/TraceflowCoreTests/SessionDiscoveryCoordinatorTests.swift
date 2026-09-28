@@ -27,6 +27,35 @@ final class SessionDiscoveryCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.poll(now: start.addingTimeInterval(37), isSettingsVisible: true), .automatic)
     }
 
+    func testReopeningDuringAutomaticReadSchedulesOneImmediateRefresh() {
+        var coordinator = SessionDiscoveryCoordinator()
+        XCTAssertEqual(coordinator.openSettings(now: start), .automatic)
+        XCTAssertNil(coordinator.openSettings(now: start.addingTimeInterval(1)))
+        XCTAssertNil(coordinator.openSettings(now: start.addingTimeInterval(2)))
+        XCTAssertEqual(coordinator.finish(now: start.addingTimeInterval(3)), .automatic)
+        XCTAssertNil(coordinator.finish(now: start.addingTimeInterval(4)))
+        XCTAssertNil(coordinator.poll(now: start.addingTimeInterval(18), isSettingsVisible: true))
+        XCTAssertEqual(coordinator.poll(now: start.addingTimeInterval(19), isSettingsVisible: true), .automatic)
+    }
+
+    func testManualReadCoversPendingReopenRefresh() {
+        var coordinator = SessionDiscoveryCoordinator()
+        XCTAssertEqual(coordinator.openSettings(now: start), .automatic)
+        XCTAssertNil(coordinator.openSettings(now: start.addingTimeInterval(1)))
+        XCTAssertNil(coordinator.requestManual())
+        XCTAssertEqual(coordinator.finish(now: start.addingTimeInterval(2)), .manual)
+        XCTAssertNil(coordinator.finish(now: start.addingTimeInterval(3)))
+    }
+
+    func testClearInvalidatesInFlightResultsIncludingUnknownIDs() {
+        var coordinator = SessionDiscoveryCoordinator()
+        XCTAssertEqual(coordinator.openSettings(now: start), .automatic)
+        let previousGeneration = coordinator.responseGeneration
+        coordinator.invalidateInFlightResponses()
+        XCTAssertFalse(coordinator.acceptsResponse(generation: previousGeneration))
+        XCTAssertTrue(coordinator.acceptsResponse(generation: coordinator.responseGeneration))
+    }
+
     func testSuppressionExpiresOrClearsAndIsNotPersisted() {
         var coordinator = SessionDiscoveryCoordinator()
         coordinator.suppress(["a", "b"], now: start)

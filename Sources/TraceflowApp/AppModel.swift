@@ -176,6 +176,7 @@ final class AppModel: ObservableObject {
 
     func clearSessions() {
         guard sessionDataHealth.allowsSaving else { return }
+        discovery.invalidateInFlightResponses()
         discovery.suppress(Array(machines.keys), now: Date())
         machines.removeAll(); nextRotationIndex = 0; expandedProjectKeys.removeAll()
         defaults.removeObject(forKey: "expandedProjectKeys")
@@ -322,20 +323,25 @@ final class AppModel: ObservableObject {
             recentDiscoveryMessage = nil
         }
         let cutoff = now.addingTimeInterval(-RecentSessionSelector.window)
+        let responseGeneration = discovery.responseGeneration
         Task.detached { [weak self] in
             do {
                 let client = CodexAppServerClient()
                 let threads = try request == .manual
                     ? client.listThreads()
                     : client.listRecentThreads(since: cutoff, now: now)
-                await self?.completeDiscovery(request, threads: threads)
+                await self?.completeDiscovery(request, threads: threads, responseGeneration: responseGeneration)
             } catch {
                 await self?.failDiscovery(request, message: error.localizedDescription)
             }
         }
     }
 
-    private func completeDiscovery(_ request: SessionDiscoveryRequest, threads: [CodexThreadSummary]) {
+    private func completeDiscovery(_ request: SessionDiscoveryRequest, threads: [CodexThreadSummary], responseGeneration: Int) {
+        if !discovery.acceptsResponse(generation: responseGeneration) {
+            finishDiscovery(request, now: Date())
+            return
+        }
         if request == .manual { discovery.clearSuppression() }
         let now = Date()
         let allowed = request == .automatic

@@ -131,12 +131,6 @@ enum RecentThreadPageFilter {
             $0.updatedAt > since && $0.updatedAt <= now && SessionSourcePolicy.isAllowedAppServerKind($0.sourceKind)
         }
     }
-
-    static func reachedCutoff(_ page: CodexThreadListPage, since: Date) -> Bool {
-        let dates = page.threads.map(\.updatedAt)
-        guard zip(dates, dates.dropFirst()).allSatisfy({ $0 >= $1 }) else { return false }
-        return dates.contains { $0 <= since }
-    }
 }
 
 public enum CodexAppServerError: LocalizedError, Equatable {
@@ -261,7 +255,7 @@ public struct CodexAppServerClient: Sendable {
             let page = try CodexThreadListPage.decode(from: result)
             if let since, let now {
                 allThreads.append(contentsOf: RecentThreadPageFilter.accepted(page, since: since, now: now))
-                cursor = RecentThreadPageFilter.reachedCutoff(page, since: since) ? nil : page.nextCursor
+                cursor = page.nextCursor
             } else {
                 allThreads.append(contentsOf: page.threads)
                 cursor = page.nextCursor

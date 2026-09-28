@@ -8,12 +8,18 @@ public enum SessionDiscoveryRequest: Sendable, Equatable {
 public struct SessionDiscoveryCoordinator: Sendable {
     public private(set) var activeRequest: SessionDiscoveryRequest?
     public private(set) var nextAutomaticAt: Date = .distantPast
+    public private(set) var responseGeneration = 0
     private var pendingManual = false
+    private var pendingOpenRefresh = false
     private var suppressedUntil: [String: Date] = [:]
 
     public init() {}
 
     public mutating func openSettings(now: Date) -> SessionDiscoveryRequest? {
+        if activeRequest == .automatic {
+            pendingOpenRefresh = true
+            return nil
+        }
         guard activeRequest == nil else { return nil }
         activeRequest = .automatic
         return .automatic
@@ -40,10 +46,24 @@ public struct SessionDiscoveryCoordinator: Sendable {
         nextAutomaticAt = now.addingTimeInterval(15)
         if pendingManual {
             pendingManual = false
+            pendingOpenRefresh = false
             activeRequest = .manual
             return .manual
         }
+        if pendingOpenRefresh {
+            pendingOpenRefresh = false
+            activeRequest = .automatic
+            return .automatic
+        }
         return nil
+    }
+
+    public mutating func invalidateInFlightResponses() {
+        responseGeneration += 1
+    }
+
+    public func acceptsResponse(generation: Int) -> Bool {
+        generation == responseGeneration
     }
 
     public mutating func suppress(_ ids: [String], now: Date) {

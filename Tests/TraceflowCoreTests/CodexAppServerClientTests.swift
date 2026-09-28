@@ -43,16 +43,35 @@ final class CodexAppServerClientTests: XCTestCase {
         ], nextCursor: "next")
 
         XCTAssertEqual(RecentThreadPageFilter.accepted(page, since: since, now: now).map(\.id), ["recent"])
-        XCTAssertFalse(RecentThreadPageFilter.reachedCutoff(page, since: since))
     }
 
-    func testRecentPageStopsAtCutoffOnlyForDescendingPage() {
-        let since = Date(timeIntervalSince1970: 1_000)
-        let sorted = CodexThreadListPage(threads: [summary("a", 1_500), summary("b", 1_000)], nextCursor: "next")
-        let unsorted = CodexThreadListPage(threads: [summary("b", 1_000), summary("a", 1_500)], nextCursor: "next")
+    func testRecentReadKeepsScanningAfterOldPage() throws {
+        let script = """
+        import json, sys
+        def receive(): return json.loads(sys.stdin.readline())
+        def send(value):
+            print(json.dumps(value), flush=True)
+        init = receive()
+        send({"id": init["id"], "result": {}})
+        receive()
+        first = receive()
+        send({"id": first["id"], "result": {"data": [{"id": "old", "cwd": "/work", "createdAt": 1, "updatedAt": 100}], "nextCursor": "next"}})
+        second = receive()
+        send({"id": second["id"], "result": {"data": [{"id": "recent", "cwd": "/work", "createdAt": 1, "updatedAt": 1500}], "nextCursor": None}})
+        """
+        let client = CodexAppServerClient(
+            executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
+            arguments: ["-c", script],
+            responseTimeout: 2,
+            overallTimeout: 5
+        )
 
-        XCTAssertTrue(RecentThreadPageFilter.reachedCutoff(sorted, since: since))
-        XCTAssertFalse(RecentThreadPageFilter.reachedCutoff(unsorted, since: since))
+        let threads = try client.listRecentThreads(
+            since: Date(timeIntervalSince1970: 1_000),
+            now: Date(timeIntervalSince1970: 1_600)
+        )
+
+        XCTAssertEqual(threads.map(\.id), ["recent"])
     }
 
     func testImportAddsThreadsAndPreservesExistingHUDSelection() {

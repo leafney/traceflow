@@ -8,6 +8,9 @@ import TraceflowCore
 final class AppModel: ObservableObject {
     @Published private(set) var sessions: [SessionSnapshot] = []
     @Published private(set) var sessionProjects: [SessionProjectGroup] = []
+    @Published private(set) var recentSessions: [SessionSnapshot] = []
+    @Published private(set) var isDiscoveringRecentSessions = false
+    @Published private(set) var recentDiscoveryMessage: String?
     @Published private(set) var expandedProjectKeys: Set<String> = []
     @Published private(set) var displayedSession: SessionSnapshot?
     @Published private(set) var shouldAnimateDisplayChange = false
@@ -47,6 +50,8 @@ final class AppModel: ObservableObject {
     private var nextRotationIndex = 0
     private var settingsController: NSWindowController?
     private var pendingHealthCheckID: String?
+    private var discovery = SessionDiscoveryCoordinator()
+    private var lastRecentRefreshAt: Date = .distantPast
 
     init() {
         let defaults = UserDefaults.standard
@@ -100,6 +105,12 @@ final class AppModel: ObservableObject {
     func tick(now: Date = Date()) {
         recheckCompletionTimeouts(now: now)
         if let decision = scheduler.advance(now: now) { applyDisplayDecision(decision) }
+        if settingsController?.window?.isVisible == true {
+            if now.timeIntervalSince(lastRecentRefreshAt) >= 1 || now < lastRecentRefreshAt {
+                refreshRecentSessions(now: now)
+            }
+            if let request = discovery.poll(now: now, isSettingsVisible: true) { startDiscovery(request, now: now) }
+        }
     }
 
     func recheckCompletionTimeouts(now: Date = Date()) {
@@ -125,6 +136,8 @@ final class AppModel: ObservableObject {
         }
         settingsController?.showWindow(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
+        refreshRecentSessions(now: Date())
+        if let request = discovery.openSettings(now: Date()) { startDiscovery(request, now: Date()) }
     }
 
     func setIncluded(_ included: Bool, sessionID: String) {
@@ -156,12 +169,14 @@ final class AppModel: ObservableObject {
 
     func deleteSession(_ sessionID: String) {
         guard sessionDataHealth.allowsSaving else { return }
+        discovery.suppress([sessionID], now: Date())
         machines.removeValue(forKey: sessionID)
         refreshSessions(); persistSessions()
     }
 
     func clearSessions() {
         guard sessionDataHealth.allowsSaving else { return }
+        discovery.suppress(Array(machines.keys), now: Date())
         machines.removeAll(); nextRotationIndex = 0; expandedProjectKeys.removeAll()
         defaults.removeObject(forKey: "expandedProjectKeys")
         refreshSessions(); persistSessions()
@@ -289,17 +304,61 @@ final class AppModel: ObservableObject {
     }
 
     func syncCodexSessions() {
-        guard !isSyncingSessions, sessionDataHealth.allowsSaving else { return }
-        isSyncingSessions = true
-        sessionSyncMessage = "正在从 Codex 读取会话摘要……"
+        guard sessionDataHealth.allowsSaving else { return }
+        if let request = discovery.requestManual() { startDiscovery(request, now: Date()) }
+        else if discovery.activeRequest == .automatic { sessionSyncMessage = "正在等待最近会话读取完成，然后同步全部会话……" }
+    }
+
+    private func startDiscovery(_ request: SessionDiscoveryRequest, now: Date) {
+        guard sessionDataHealth.allowsSaving else {
+            _ = discovery.finish(now: now)
+            return
+        }
+        if request == .manual {
+            isSyncingSessions = true
+            sessionSyncMessage = "正在从 Codex 读取会话摘要……"
+        } else {
+            isDiscoveringRecentSessions = true
+            recentDiscoveryMessage = nil
+        }
+        let cutoff = now.addingTimeInterval(-RecentSessionSelector.window)
         Task.detached { [weak self] in
             do {
-                let threads = try CodexAppServerClient().listThreads()
-                await self?.mergeCodexThreads(threads)
+                let client = CodexAppServerClient()
+                let threads = try request == .manual
+                    ? client.listThreads()
+                    : client.listRecentThreads(since: cutoff, now: now)
+                await self?.completeDiscovery(request, threads: threads)
             } catch {
-                await self?.finishSessionSyncFailure(error.localizedDescription)
+                await self?.failDiscovery(request, message: error.localizedDescription)
             }
         }
+    }
+
+    private func completeDiscovery(_ request: SessionDiscoveryRequest, threads: [CodexThreadSummary]) {
+        if request == .manual { discovery.clearSuppression() }
+        let now = Date()
+        let allowed = request == .automatic
+            ? threads.filter {
+                let age = now.timeIntervalSince($0.updatedAt)
+                return age >= 0 && age < RecentSessionSelector.window
+                    && discovery.permitsAutomaticImport($0.id, now: now)
+            }
+            : threads
+        mergeCodexThreads(allowed, isManual: request == .manual)
+        finishDiscovery(request, now: now)
+    }
+
+    private func failDiscovery(_ request: SessionDiscoveryRequest, message: String) {
+        if request == .manual { finishSessionSyncFailure(message) }
+        else { recentDiscoveryMessage = "自动读取失败：\(message)" }
+        finishDiscovery(request, now: Date())
+    }
+
+    private func finishDiscovery(_ request: SessionDiscoveryRequest, now: Date) {
+        if request == .manual { isSyncingSessions = false }
+        else { isDiscoveringRecentSessions = false }
+        if let next = discovery.finish(now: now) { startDiscovery(next, now: now) }
     }
 
     private func apply(_ envelope: HookEnvelope) {
@@ -324,6 +383,7 @@ final class AppModel: ObservableObject {
             logger.log(DiagnosticLogFormatter.event(stage: "app.internal_ignored", envelope: envelope, appliedAt: Date(), extras: [("reason", "internal_source")]))
             return
         }
+        guard discovery.permitsAutomaticImport(id, now: Date()) else { return }
         var machine = machines[id] ?? makeMachine(for: envelope)
         let result = machine.apply(envelope, now: Date())
         let appliedAt = Date()
@@ -380,12 +440,19 @@ final class AppModel: ObservableObject {
     private func publishSessions() {
         sessions = machines.values.map(\.snapshot).sorted { $0.persisted.rotationIndex < $1.persisted.rotationIndex }
         sessionProjects = SessionProjectGrouper.groups(from: sessions)
+        refreshRecentSessions(now: Date())
         let validProjectKeys = Set(sessionProjects.map(\.id))
         let retainedExpandedKeys = expandedProjectKeys.intersection(validProjectKeys)
         if retainedExpandedKeys != expandedProjectKeys {
             expandedProjectKeys = retainedExpandedKeys
             defaults.set(Array(expandedProjectKeys).sorted(), forKey: "expandedProjectKeys")
         }
+    }
+
+    private func refreshRecentSessions(now: Date) {
+        let selected = RecentSessionSelector.select(from: sessions, now: now)
+        if selected != recentSessions { recentSessions = selected }
+        lastRecentRefreshAt = now
     }
 
     private func applyDisplayDecision(_ decision: CarouselDecision) {
@@ -432,16 +499,21 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func mergeCodexThreads(_ threads: [CodexThreadSummary]) {
+    private func mergeCodexThreads(_ threads: [CodexThreadSummary], isManual: Bool) {
+        let current = machines.values.map(\.snapshot.persisted)
         let result = CodexThreadImporter.merge(
             threads,
-            into: machines.values.map(\.snapshot.persisted),
+            into: current,
             nextRotationIndex: nextRotationIndex
         )
         var mergedMachines: [String: SessionStateMachine] = [:]
         for persisted in result.sessions {
             if var machine = machines[persisted.sessionID] {
-                machine.updatePersistedMetadata(persisted)
+                var merged = persisted
+                let live = machine.snapshot.persisted
+                merged.isIncludedInHUD = live.isIncludedInHUD
+                merged.lastActivityAt = max(live.lastActivityAt ?? merged.lastActivityAt ?? .distantPast, merged.lastActivityAt ?? .distantPast)
+                machine.updatePersistedMetadata(merged)
                 mergedMachines[persisted.sessionID] = machine
             } else {
                 mergedMachines[persisted.sessionID] = SessionStateMachine(
@@ -453,13 +525,14 @@ final class AppModel: ObservableObject {
         nextRotationIndex = result.nextRotationIndex
         refreshSessions()
         let saved = persistSessions()
-        isSyncingSessions = false
-        sessionSyncMessage = SessionSyncReport.message(
-            readCount: threads.count,
-            addedCount: result.addedCount,
-            updatedCount: result.updatedCount,
-            saved: saved
-        )
+        if isManual {
+            sessionSyncMessage = SessionSyncReport.message(
+                readCount: threads.count,
+                addedCount: result.addedCount,
+                updatedCount: result.updatedCount,
+                saved: saved
+            )
+        }
         if saved {
             logger.log("sessions=sync_success count=\(threads.count) added=\(result.addedCount)")
         } else {
@@ -468,7 +541,6 @@ final class AppModel: ObservableObject {
     }
 
     private func finishSessionSyncFailure(_ message: String) {
-        isSyncingSessions = false
         sessionSyncMessage = "同步失败：\(message)"
         logger.log("sessions=sync_failed")
     }

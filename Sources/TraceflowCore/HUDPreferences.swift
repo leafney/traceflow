@@ -15,12 +15,20 @@ public enum HUDGlowMode: String, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
 }
 
+public enum HUDTitleColor: String, CaseIterable, Identifiable, Sendable {
+    case black
+    case white
+
+    public var id: String { rawValue }
+}
+
 public final class HUDPreferences {
     public static let layoutKey = "hudLayoutMode"
     public static let glowKey = "hudGlowMode"
     public static let legacyGlowKey = "glowStrength"
     public static let transparencyKey = "hudBackgroundTransparency"
     public static let pinnedKey = "hudPinned"
+    public static let titleColorKey = "hudTitleColor"
 
     private let defaults: UserDefaults
 
@@ -67,6 +75,15 @@ public final class HUDPreferences {
 
     public func saveTransparency(_ value: Int) {
         defaults.set(HUDBackgroundAppearance.normalize(Double(value)), forKey: Self.transparencyKey)
+    }
+
+    public func loadTitleColor() -> HUDTitleColor {
+        guard let rawValue = defaults.object(forKey: Self.titleColorKey) as? String else { return .black }
+        return HUDTitleColor(rawValue: rawValue) ?? .black
+    }
+
+    public func saveTitleColor(_ color: HUDTitleColor) {
+        defaults.set(color.rawValue, forKey: Self.titleColorKey)
     }
 
     public func loadPinned() -> Bool {

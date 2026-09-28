@@ -97,4 +97,22 @@ final class HUDPreferencesTests: XCTestCase {
         preferences.savePinned(false)
         XCTAssertFalse(HUDPreferences(defaults: defaults).loadPinned())
     }
+
+    func testTitleColorDefaultsToBlackAndRejectsInvalidStorage() {
+        let preferences = HUDPreferences(defaults: defaults)
+        XCTAssertEqual(preferences.loadTitleColor(), .black)
+        XCTAssertNil(defaults.object(forKey: HUDPreferences.titleColorKey))
+        for invalidValue: Any in ["blue", 1, true] {
+            defaults.set(invalidValue, forKey: HUDPreferences.titleColorKey)
+            XCTAssertEqual(preferences.loadTitleColor(), .black)
+        }
+    }
+
+    func testTitleColorSavesBothChoicesAcrossInstances() {
+        let preferences = HUDPreferences(defaults: defaults)
+        preferences.saveTitleColor(.white)
+        XCTAssertEqual(HUDPreferences(defaults: defaults).loadTitleColor(), .white)
+        preferences.saveTitleColor(.black)
+        XCTAssertEqual(HUDPreferences(defaults: defaults).loadTitleColor(), .black)
+    }
 }

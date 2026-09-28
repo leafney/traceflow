@@ -3,6 +3,7 @@ import TraceflowCore
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @State private var confirmation: DestructiveConfirmation?
 
     var body: some View {
@@ -26,6 +27,18 @@ struct SettingsView: View {
                 Picker("光晕效果", selection: $model.hudGlowMode) {
                     Text("标准").tag(HUDGlowMode.standard)
                     Text("强烈").tag(HUDGlowMode.strong)
+                }
+                VStack(alignment: .leading) {
+                    HStack {
+                        Text("背景透明度")
+                        Slider(value: Binding(get: { Double(model.hudBackgroundTransparency) }, set: { model.previewTransparency($0) }), in: 0...100, step: 1, onEditingChanged: { model.setTransparencyEditing($0) })
+                            .accessibilityLabel("背景透明度")
+                        Text("\(model.hudBackgroundTransparency)%").monospacedDigit().frame(width: 44)
+                    }
+                    Text("0% 不透明，100% 全透明").font(.caption).foregroundStyle(.secondary)
+                    if reduceTransparency {
+                        Text("系统已减少透明效果").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Button("恢复 HUD 默认位置") { model.resetHUDPosition() }
             }

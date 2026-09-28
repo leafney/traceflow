@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
 
-    func applicationWillTerminate(_ notification: Notification) { model.stopListening() }
+    func applicationWillTerminate(_ notification: Notification) { model.commitTransparency(); model.stopListening() }
 
     @objc private func didWake() {
         model.recheckCompletionTimeouts()

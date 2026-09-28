@@ -41,6 +41,33 @@ final class AppModel: ObservableObject {
     @Published var hudGlowMode: HUDGlowMode { didSet { hudPreferences.saveGlowMode(hudGlowMode) } }
     @Published var isHUDPinned: Bool { didSet { hudPreferences.savePinned(isHUDPinned) } }
 
+    @Published private(set) var hudBackgroundTransparency: Int
+    private var transparencyEditing = false
+    private var transparencyCommit: DispatchWorkItem?
+    private var settingsCloseObserver: NSObjectProtocol?
+
+    func previewTransparency(_ value: Double) {
+        hudBackgroundTransparency = HUDBackgroundAppearance.normalize(value)
+        transparencyCommit?.cancel()
+        if !transparencyEditing {
+            let work = DispatchWorkItem { [weak self] in self?.commitTransparency() }
+            transparencyCommit = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
+        }
+    }
+
+    func setTransparencyEditing(_ editing: Bool) {
+        transparencyEditing = editing
+        transparencyCommit?.cancel()
+        if !editing { commitTransparency() }
+    }
+
+    func commitTransparency() {
+        transparencyCommit?.cancel()
+        transparencyCommit = nil
+        hudPreferences.saveTransparency(hudBackgroundTransparency)
+    }
+
     private let defaults: UserDefaults
     private let hudPreferences: HUDPreferences
     private let logger = RotatingLogger(directory: TraceflowPaths.logs())
@@ -65,6 +92,7 @@ final class AppModel: ObservableObject {
         hudLayoutMode = hudPreferences.loadLayoutMode()
         hudGlowMode = hudPreferences.loadGlowMode()
         isHUDPinned = hudPreferences.loadPinned()
+        hudBackgroundTransparency = hudPreferences.loadTransparency()
         scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
         expandedProjectKeys = Set(defaults.stringArray(forKey: "expandedProjectKeys") ?? [])
         restoreSessions()
@@ -131,6 +159,9 @@ final class AppModel: ObservableObject {
     func openSettingsWindow() {
         if settingsController == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 680), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            settingsCloseObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setTransparencyEditing(false) }
+            }
             window.title = "Traceflow 设置"
             window.contentView = NSHostingView(rootView: SettingsView(model: self))
             window.center()

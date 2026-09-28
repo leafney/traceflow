@@ -51,10 +51,10 @@ final class HUDBackgroundAppearanceTests: XCTestCase {
         let defaults = UserDefaults(suiteName: name)!
         defer { defaults.removePersistentDomain(forName: name) }
         let preferences = HUDPreferences(defaults: defaults)
-        XCTAssertEqual(preferences.loadTransparency(), 80)
+        XCTAssertEqual(preferences.loadTransparency(), 10)
         for value in ["90" as Any, true, Double.nan] {
             defaults.set(value, forKey: HUDPreferences.transparencyKey)
-            XCTAssertEqual(preferences.loadTransparency(), 80)
+            XCTAssertEqual(preferences.loadTransparency(), 10)
         }
         for (value, expected) in [(-20.0, 0), (150.0, 100), (89.6, 90)] {
             defaults.set(value, forKey: HUDPreferences.transparencyKey)

@@ -61,7 +61,7 @@ public final class HUDPreferences {
 
     public func loadTransparency() -> Int {
         guard let number = defaults.object(forKey: Self.transparencyKey) as? NSNumber,
-              CFGetTypeID(number) != CFBooleanGetTypeID() else { return 80 }
+              CFGetTypeID(number) != CFBooleanGetTypeID() else { return HUDBackgroundAppearance.defaultTransparency }
         return HUDBackgroundAppearance.normalize(number.doubleValue)
     }
 

@@ -2,10 +2,11 @@ import Foundation
 import CoreGraphics
 
 public struct HUDBackgroundAppearance {
+    public static let defaultTransparency = 10
     public let transparency: Int
     public init(_ value: Int) { transparency = Self.normalize(Double(value)) }
     public static func normalize(_ value: Double) -> Int {
-        guard value.isFinite else { return 80 }
+        guard value.isFinite else { return defaultTransparency }
         return Int(min(100, max(0, value)).rounded())
     }
     public var compact: Bool { transparency >= 90 }

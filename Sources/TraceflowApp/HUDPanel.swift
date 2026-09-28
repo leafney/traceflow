@@ -10,6 +10,7 @@ final class NonActivatingPanel: NSPanel {
 }
 
 final class HUDDragView: NSView {
+    var canBeginDrag: (() -> Bool)?
     var dragStarted: (() -> Void)?
     var dragFinished: ((Bool) -> Void)?
     private var drag: HUDDragTracking?
@@ -25,7 +26,7 @@ final class HUDDragView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard let window else { return }
+        guard let window, canBeginDrag?() == true else { return }
         drag = HUDDragTracking(pointer: NSEvent.mouseLocation, origin: window.frame.origin)
         dragStarted?()
     }
@@ -49,10 +50,10 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private weak var model: AppModel?
     private let hostingView: NSHostingView<HUDView>
     private var layout: HUDLayoutMode
+    private var interaction: HUDInteractionState
     private var layoutObserver: AnyCancellable?
     private var pinObserver: AnyCancellable?
     private var isRestoringPosition = false
-    private var isUserDragging = false
     private var isTemporaryPosition = false
     private var positionRetry: DispatchWorkItem?
     private var positionRetryDeadline: Date?
@@ -62,6 +63,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         self.defaults = defaults
         positions = HUDPositionStore(defaults: defaults)
         layout = model.hudLayoutMode
+        interaction = HUDInteractionState(isPinned: model.isHUDPinned)
         let size = HUDPositionGeometry.size(for: layout)
         let panel = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         let content = Self.makeGlassContent(model: model, size: size)
@@ -75,16 +77,18 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
         panel.contentView = content.container
-        panel.ignoresMouseEvents = model.isHUDPinned
+        panel.ignoresMouseEvents = interaction.ignoresMouseEvents
         super.init(window: panel)
+        content.container.canBeginDrag = { [weak self] in
+            self?.interaction.canBeginDrag ?? false
+        }
         content.container.dragStarted = { [weak self] in
-            self?.positionRetry?.cancel()
-            self?.positionRetryDeadline = nil
-            self?.isUserDragging = true
+            guard let self, self.interaction.beginDrag() else { return }
+            self.positionRetry?.cancel()
+            self.positionRetryDeadline = nil
         }
         content.container.dragFinished = { [weak self] moved in
-            guard let self else { return }
-            self.isUserDragging = false
+            guard let self, self.interaction.finishDrag() else { return }
             if moved {
                 self.savePosition()
                 self.isTemporaryPosition = false
@@ -109,12 +113,12 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
 
     private func setPinned(_ pinned: Bool) {
         guard let window else { return }
-        if pinned {
+        let shouldCancelDrag = interaction.setPinned(pinned)
+        if shouldCancelDrag {
             (window.contentView as? HUDDragView)?.cancelDrag()
-            isUserDragging = false
             restorePosition()
         }
-        window.ignoresMouseEvents = pinned
+        window.ignoresMouseEvents = interaction.ignoresMouseEvents
     }
 
     func windowDidMove(_ notification: Notification) {
@@ -182,7 +186,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func restorePosition() {
-        guard let window, !isUserDragging else { return }
+        guard let window, !interaction.isDragging else { return }
         isRestoringPosition = true
         defer { isRestoringPosition = false }
         let positionResult = positions.loadResult(layout)

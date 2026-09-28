@@ -74,7 +74,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePin() {
         model.isHUDPinned.toggle()
-        pinMenuItem?.title = model.isHUDPinned ? "取消钉住 HUD" : "钉住 HUD"
     }
 
     @objc private func openSettings() { model.openSettingsWindow() }

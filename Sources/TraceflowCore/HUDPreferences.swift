@@ -16,6 +16,14 @@ public enum HUDLayoutMode: String, CaseIterable, Identifiable, Sendable {
     public var isHorizontal: Bool { self == .horizontalLeft || self == .horizontalRight }
     public var lightsAtLeadingEdge: Bool { self == .horizontalLeft || self == .verticalTop }
     public var regions: [HUDRegion] { lightsAtLeadingEdge ? [.lights, .title, .icon] : [.icon, .title, .lights] }
+    public var menuTitle: String {
+        switch self {
+        case .horizontalLeft: "横向左"
+        case .horizontalRight: "横向右"
+        case .verticalTop: "竖向上"
+        case .verticalBottom: "竖向下"
+        }
+    }
     public var sourceLayout: Self? {
         switch self {
         case .horizontalLeft: .horizontalRight

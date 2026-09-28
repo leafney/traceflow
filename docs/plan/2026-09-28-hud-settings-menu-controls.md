@@ -99,7 +99,7 @@ HUD 布局          >
 退出 Traceflow     [保留既有快捷键]
 ```
 
-1. 在 `AppDelegate.configureStatusItem()` 创建父菜单的三个顶部项目，顺序必须与设置页一致。把“HUD 布局”作为第三个 `NSMenuItem`，给它设置一个独立 `NSMenu` 作为 `submenu`，不要给父项设置切换 action。
+1. 在 `AppDelegate.configureStatusItem()` 创建父菜单的三个顶部项目，顺序必须与设置页一致。把“HUD 布局”作为第三个 `NSMenuItem`，给它设置一个独立 `NSMenu` 作为 `submenu`，不要给父项设置业务切换 action。AppKit 安装子菜单后可能自动把父项的 `action` 变为内部的 `submenuAction:`，测试不得误判为布局切换 action。
 2. 子菜单四项每项都设置对应选择 action 和 `target`。**现有** `for menuItem in menu.items { menuItem.target = self }` 只遍历父菜单，不会自动给子菜单项设置 target；子项必须逐个设定，或递归设置。
 3. 子项使用稳定的 `representedObject`（四值的 `rawValue`）或明确映射，不通过显示标题、菜单索引推断布局。action 中校验值能解成 `HUDLayoutMode`，有效且不同于当前值才写 `model.hudLayoutMode`。父项不显示对勾。
 4. 保存三个顶部菜单项及四个子项的稳定引用，或者封装一个接受模型快照并更新项目的菜单控制对象。勾选刷新不得重建整棵菜单，否则菜单正在展开时可能闪烁或丢失指向。

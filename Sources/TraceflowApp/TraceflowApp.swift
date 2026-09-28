@@ -15,15 +15,26 @@ enum TraceflowMain {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let model = AppModel()
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private let model: AppModel
     private var panelController: HUDPanelController?
     private var statusItem: NSStatusItem?
     private var timer: Timer?
     private var visibilityObserver: AnyCancellable?
     private var pinObserver: AnyCancellable?
+    private var layoutObserver: AnyCancellable?
     private var visibilityMenuItem: NSMenuItem?
     private var pinMenuItem: NSMenuItem?
+    private var layoutMenuItems: [HUDLayoutMode: NSMenuItem] = [:]
+
+    override convenience init() {
+        self.init(model: AppModel())
+    }
+
+    init(model: AppModel) {
+        self.model = model
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panelController = HUDPanelController(model: model)
@@ -31,10 +42,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureStatusItem()
         visibilityObserver = model.$isHUDVisible.dropFirst().sink { [weak self] visible in
             if visible { self?.panelController?.show() } else { self?.panelController?.hide() }
-            self?.visibilityMenuItem?.title = visible ? "隐藏 HUD" : "显示 HUD"
+            self?.scheduleMenuRefresh()
         }
-        pinObserver = model.$isHUDPinned.dropFirst().sink { [weak self] pinned in
-            self?.pinMenuItem?.title = pinned ? "取消钉住 HUD" : "钉住 HUD"
+        pinObserver = model.$isHUDPinned.dropFirst().sink { [weak self] _ in
+            self?.scheduleMenuRefresh()
+        }
+        layoutObserver = model.$hudLayoutMode.dropFirst().sink { [weak self] _ in
+            self?.scheduleMenuRefresh()
         }
         model.startListening()
         timer = Timer.scheduledTimer(timeInterval: 0.25, target: self, selector: #selector(timerFired), userInfo: nil, repeats: true)
@@ -55,25 +69,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func configureStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: "Traceflow")
-        let menu = NSMenu()
-        visibilityMenuItem = menu.addItem(withTitle: model.isHUDVisible ? "隐藏 HUD" : "显示 HUD", action: #selector(toggleHUD), keyEquivalent: "")
-        pinMenuItem = menu.addItem(withTitle: model.isHUDPinned ? "取消钉住 HUD" : "钉住 HUD", action: #selector(togglePin), keyEquivalent: "")
-        menu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: "")
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "退出 Traceflow", action: #selector(quit), keyEquivalent: "q")
-        for menuItem in menu.items { menuItem.target = self }
+        let menu = makeMenu()
         item.menu = menu
         statusItem = item
     }
 
+    func makeMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.delegate = self
+        visibilityMenuItem = menu.addItem(withTitle: "显示 HUD", action: #selector(toggleHUD), keyEquivalent: "")
+        pinMenuItem = menu.addItem(withTitle: "钉住 HUD", action: #selector(togglePin), keyEquivalent: "")
+        let layoutItem = menu.addItem(withTitle: "HUD 布局", action: nil, keyEquivalent: "")
+        let layoutMenu = NSMenu(title: "HUD 布局")
+        layoutMenu.delegate = self
+        layoutMenuItems.removeAll()
+        for layout in HUDLayoutMode.allCases {
+            let item = layoutMenu.addItem(withTitle: layout.menuTitle, action: #selector(selectLayout(_:)), keyEquivalent: "")
+            item.representedObject = layout.rawValue
+            item.target = self
+            layoutMenuItems[layout] = item
+        }
+        layoutItem.submenu = layoutMenu
+        menu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "退出 Traceflow", action: #selector(quit), keyEquivalent: "q")
+        for menuItem in menu.items { menuItem.target = self }
+        refreshMenuState()
+        return menu
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) { refreshMenuState() }
+
+    private func scheduleMenuRefresh() {
+        // @Published emits before its stored property changes.
+        DispatchQueue.main.async { [weak self] in self?.refreshMenuState() }
+    }
+
+    func refreshMenuState() {
+        visibilityMenuItem?.state = model.isHUDVisible ? .on : .off
+        pinMenuItem?.state = model.isHUDPinned ? .on : .off
+        for (layout, item) in layoutMenuItems {
+            item.state = model.hudLayoutMode == layout ? .on : .off
+        }
+    }
+
     @objc private func toggleHUD() {
         model.isHUDVisible.toggle()
-        if model.isHUDVisible { panelController?.show() } else { panelController?.hide() }
-        visibilityMenuItem?.title = model.isHUDVisible ? "隐藏 HUD" : "显示 HUD"
     }
 
     @objc private func togglePin() {
         model.isHUDPinned.toggle()
+    }
+
+    @objc private func selectLayout(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let layout = HUDLayoutMode(rawValue: rawValue),
+              layout != model.hudLayoutMode else { return }
+        model.hudLayoutMode = layout
     }
 
     @objc private func openSettings() { model.openSettingsWindow() }

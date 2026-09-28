@@ -10,8 +10,10 @@ final class HUDBackgroundAppearanceTests: XCTestCase {
             let middle = shrinking.sample(elapsed: 0.1)
             XCTAssertFalse(middle.complete)
             XCTAssertEqual(middle.iconFraction, 0.5)
-            XCTAssertEqual(middle.frame.minY, reference.minY)
-            if layout == .horizontal { XCTAssertEqual(middle.frame.maxX, reference.maxX) }
+            if layout == .verticalTop { XCTAssertEqual(middle.frame.maxY, reference.maxY) }
+            else { XCTAssertEqual(middle.frame.minY, reference.minY) }
+            if layout == .horizontalRight { XCTAssertEqual(middle.frame.maxX, reference.maxX) }
+            if layout == .horizontalLeft { XCTAssertEqual(middle.frame.minX, reference.minX) }
             let expanding = HUDSizeTransition(start: middle.frame, target: reference, initialIconFraction: middle.iconFraction, targetIconFraction: 1)
             XCTAssertEqual(expanding.sample(elapsed: 0).frame, middle.frame)
             XCTAssertEqual(expanding.sample(elapsed: 0.2).frame, reference)
@@ -27,14 +29,14 @@ final class HUDBackgroundAppearanceTests: XCTestCase {
         let visible = CGRect(x: -1200, y: 0, width: 1200, height: 800)
         let screen = HUDScreenIdentity(uuid: "external", displayID: 7, name: "Display", pixelWidth: 1200, pixelHeight: 800)
         for layout in HUDLayoutMode.allCases {
-            let origin = layout == .horizontal ? visible.origin : CGPoint(x: visible.minX, y: visible.maxY - 380)
+            let origin = layout == .horizontalRight ? visible.origin : CGPoint(x: visible.minX, y: visible.maxY - 380)
             let compact = CGRect(origin: origin, size: HUDBackgroundAppearance(95).size(layout))
             let reference = HUDBackgroundAppearance.referenceFrame(compact, layout: layout)
             let relative = HUDPositionGeometry.relativePosition(of: reference, in: visible)
             let record = HUDPositionRecord(version: 3, displayUUID: "external", legacyDisplayID: 7, displayName: "Display", pixelWidth: 1200, pixelHeight: 800,
                 relativeX: relative.x, relativeY: relative.y,
-                anchorX: ((layout == .horizontal ? reference.maxX : reference.minX) - visible.minX) / visible.width,
-                anchorY: (reference.minY - visible.minY) / visible.height)
+                anchorX: ((layout == .horizontalRight ? reference.maxX : reference.minX) - visible.minX) / visible.width,
+                anchorY: ((layout == .verticalTop ? reference.maxY : reference.minY) - visible.minY) / visible.height)
             HUDPositionStore(defaults: defaults).save(record, for: layout)
             let loaded = HUDPositionStore(defaults: defaults).loadResult(layout)
             let restored = HUDPositionDecision.resolve(layout: layout, stored: loaded, screens: [screen], visibleFrames: [visible], mainIndex: 0)
@@ -72,8 +74,10 @@ final class HUDBackgroundAppearanceTests: XCTestCase {
             for layout in HUDLayoutMode.allCases {
                 let original = CGRect(origin: reference.origin, size: HUDPositionGeometry.size(for: layout))
                 let display = appearance.displayFrame(original, layout: layout)
-                XCTAssertEqual(display.minY, original.minY)
-                if layout == .horizontal { XCTAssertEqual(display.maxX, original.maxX) }
+                if layout == .verticalTop { XCTAssertEqual(display.maxY, original.maxY) }
+                else { XCTAssertEqual(display.minY, original.minY) }
+                if layout == .horizontalRight { XCTAssertEqual(display.maxX, original.maxX) }
+                if layout == .horizontalLeft { XCTAssertEqual(display.minX, original.minX) }
                 XCTAssertEqual(HUDBackgroundAppearance.referenceFrame(display, layout: layout), original)
             }
         }

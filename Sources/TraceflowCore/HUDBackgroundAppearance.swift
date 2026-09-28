@@ -14,15 +14,18 @@ public struct HUDBackgroundAppearance {
     public var materialAlpha: Double { Double(transparency) / 100 }
     public func size(_ layout: HUDLayoutMode) -> CGSize {
         let length: CGFloat = compact ? 380 : 420
-        return layout == .horizontal ? CGSize(width: length, height: 40) : CGSize(width: 40, height: length)
+        return layout.isHorizontal ? CGSize(width: length, height: 40) : CGSize(width: 40, height: length)
     }
     public func displayFrame(_ reference: CGRect, layout: HUDLayoutMode) -> CGRect {
-        CGRect(origin: CGPoint(x: reference.minX + (layout == .horizontal && compact ? 40 : 0), y: reference.minY), size: size(layout))
+        let offset: CGFloat = compact ? 40 : 0
+        return CGRect(origin: CGPoint(x: reference.minX + (layout == .horizontalRight ? offset : 0),
+                                      y: reference.minY + (layout == .verticalTop ? offset : 0)), size: size(layout))
     }
     public static func referenceFrame(_ display: CGRect, layout: HUDLayoutMode) -> CGRect {
-        CGRect(x: layout == .horizontal ? display.maxX - 420 : display.minX,
-               y: display.minY, width: layout == .horizontal ? 420 : 40,
-               height: layout == .horizontal ? 40 : 420)
+        CGRect(x: layout == .horizontalRight ? display.maxX - 420 : display.minX,
+               y: layout == .verticalTop ? display.maxY - 420 : display.minY,
+               width: layout.isHorizontal ? 420 : 40,
+               height: layout.isHorizontal ? 40 : 420)
     }
 }
 

@@ -5,7 +5,7 @@ final class HUDGeometryStateTests: XCTestCase {
     func testRepeatedEdgeExpansionAndCollapseKeepsOriginalReference() throws {
         let visible = CGRect(x: 0, y: 0, width: 1200, height: 800)
         for layout in HUDLayoutMode.allCases {
-            let compact = CGRect(origin: layout == .horizontal ? .zero : CGPoint(x: 0, y: 420), size: HUDBackgroundAppearance(95).size(layout))
+            let compact = CGRect(origin: layout == .horizontalRight ? .zero : CGPoint(x: 0, y: 420), size: HUDBackgroundAppearance(95).size(layout))
             let reference = HUDBackgroundAppearance.referenceFrame(compact, layout: layout)
             var state = HUDGeometryState(transparency: 95, pinned: false)
             state.restoreReference(reference)
@@ -26,11 +26,11 @@ final class HUDGeometryStateTests: XCTestCase {
         state.restoreReference(saved)
         XCTAssertTrue(state.beginDrag())
         state.setTransparency(95)
-        XCTAssertNil(state.target(layout: .horizontal, visible: nil))
+        XCTAssertNil(state.target(layout: .horizontalRight, visible: nil))
         state.cancelDrag()
-        XCTAssertFalse(state.finishDrag(frame: CGRect(x: 700, y: 50, width: 420, height: 40), moved: true, layout: .horizontal))
+        XCTAssertFalse(state.finishDrag(frame: CGRect(x: 700, y: 50, width: 420, height: 40), moved: true, layout: .horizontalRight))
         state.restoreReference(saved)
-        XCTAssertEqual(state.target(layout: .horizontal, visible: nil), CGRect(x: 140, y: 50, width: 380, height: 40))
+        XCTAssertEqual(state.target(layout: .horizontalRight, visible: nil), CGRect(x: 140, y: 50, width: 380, height: 40))
         XCTAssertTrue(state.beginDrag())
     }
 
@@ -41,12 +41,12 @@ final class HUDGeometryStateTests: XCTestCase {
         for value in [95, 89, 100] {
             state.setTransparency(value)
             // Also used by geometry updates when accessibility settings change.
-            XCTAssertNil(state.target(layout: .horizontal, visible: nil))
+            XCTAssertNil(state.target(layout: .horizontalRight, visible: nil))
         }
         let dragged = CGRect(x: 200, y: 70, width: 420, height: 40)
-        XCTAssertTrue(state.finishDrag(frame: dragged, moved: true, layout: .horizontal))
+        XCTAssertTrue(state.finishDrag(frame: dragged, moved: true, layout: .horizontalRight))
         XCTAssertEqual(state.reference, dragged)
-        XCTAssertEqual(state.target(layout: .horizontal, visible: nil), CGRect(x: 240, y: 70, width: 380, height: 40))
+        XCTAssertEqual(state.target(layout: .horizontalRight, visible: nil), CGRect(x: 240, y: 70, width: 380, height: 40))
     }
 
     func testPinCancelsDeferredDragWithoutCommittingIt() {
@@ -56,9 +56,9 @@ final class HUDGeometryStateTests: XCTestCase {
         XCTAssertTrue(state.beginDrag())
         state.setTransparency(80)
         XCTAssertTrue(state.setPinned(true))
-        XCTAssertFalse(state.finishDrag(frame: .zero, moved: true, layout: .horizontal))
+        XCTAssertFalse(state.finishDrag(frame: .zero, moved: true, layout: .horizontalRight))
         XCTAssertEqual(state.reference, reference)
-        XCTAssertEqual(state.target(layout: .horizontal, visible: nil), reference)
+        XCTAssertEqual(state.target(layout: .horizontalRight, visible: nil), reference)
         XCTAssertTrue(state.interaction.ignoresMouseEvents)
     }
 }

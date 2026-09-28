@@ -110,7 +110,7 @@ public enum HUDPositionGeometry {
     }
 
     public static func size(for layout: HUDLayoutMode) -> CGSize {
-        layout == .horizontal
+        layout.isHorizontal
             ? CGSize(width: HUDMetrics.longAxis, height: HUDMetrics.shortAxis)
             : CGSize(width: HUDMetrics.shortAxis, height: HUDMetrics.longAxis)
     }
@@ -119,9 +119,9 @@ public enum HUDPositionGeometry {
         let size = size(for: layout)
         let origin: CGPoint
         switch layout {
-        case .horizontal:
+        case .horizontalLeft, .horizontalRight:
             origin = CGPoint(x: visible.midX - size.width / 2, y: visible.maxY - size.height - HUDMetrics.edgeOffset)
-        case .vertical:
+        case .verticalTop, .verticalBottom:
             origin = CGPoint(x: visible.maxX - size.width - HUDMetrics.edgeOffset, y: visible.midY - size.height / 2)
         }
         return clamped(CGRect(origin: origin, size: size), to: visible)
@@ -203,8 +203,8 @@ public struct HUDPositionDecision: Equatable {
             let frame: CGRect
             if let x = record.anchorX, let y = record.anchorY, x.isFinite, y.isFinite {
                 let size = HUDPositionGeometry.size(for: layout)
-                frame = CGRect(x: visible.minX + x * visible.width - (layout == .horizontal ? size.width : 0),
-                               y: visible.minY + y * visible.height, width: size.width, height: size.height)
+                frame = CGRect(x: visible.minX + x * visible.width - (layout == .horizontalRight ? size.width : 0),
+                               y: visible.minY + y * visible.height - (layout == .verticalTop ? size.height : 0), width: size.width, height: size.height)
             } else {
                 frame = HUDPositionGeometry.restoredFrame(for: layout, relativeX: record.relativeX, relativeY: record.relativeY, visible: visible)
             }
@@ -243,6 +243,8 @@ public enum HUDPositionLoadResult: Equatable {
 public final class HUDPositionStore {
     public static let horizontalKey = "hudPositionHorizontalV3"
     public static let verticalKey = "hudPositionVerticalV1"
+    public static let horizontalLeftKey = "hudPositionHorizontalLeftV1"
+    public static let verticalTopKey = "hudPositionVerticalTopV1"
     public static let legacyKey = "hudPositionV2"
 
     private let defaults: UserDefaults
@@ -253,14 +255,36 @@ public final class HUDPositionStore {
         let key = Self.key(for: layout)
         if let storedValue = defaults.object(forKey: key) {
             guard let data = storedValue as? Data else { return .corrupted }
-            guard let record = try? JSONDecoder().decode(HUDPositionRecord.self, from: data) else { return .corrupted }
+            guard let record = try? JSONDecoder().decode(HUDPositionRecord.self, from: data), Self.isValid(record) else { return .corrupted }
             return .loaded(record)
         }
-        guard layout == .horizontal, let legacyValue = defaults.object(forKey: Self.legacyKey) else { return .missing }
+        guard layout == .horizontalRight, let legacyValue = defaults.object(forKey: Self.legacyKey) else { return .missing }
         guard let data = legacyValue as? Data,
-              let record = try? JSONDecoder().decode(HUDPositionRecord.self, from: data) else { return .corrupted }
-        save(record, for: .horizontal)
+              let record = try? JSONDecoder().decode(HUDPositionRecord.self, from: data), Self.isValid(record) else { return .corrupted }
+        save(record, for: .horizontalRight)
         return .loaded(record)
+    }
+
+    /// Seeds a new layout once without changing its source layout's record.
+    public func seedIfMissing(_ layout: HUDLayoutMode, screens: [HUDScreenIdentity], visibleFrames: [CGRect]) -> HUDPositionLoadResult {
+        let existing = loadResult(layout)
+        guard existing == .missing, let source = layout.sourceLayout,
+              case let .loaded(record) = loadResult(source) else { return existing }
+        var anchorX: Double?
+        var anchorY: Double?
+        if let index = HUDPositionGeometry.matchingScreen(for: record, among: screens), visibleFrames.indices.contains(index) {
+            let visible = visibleFrames[index]
+            let restored = HUDPositionDecision.resolve(layout: source, stored: .loaded(record), screens: screens, visibleFrames: visibleFrames, mainIndex: index)
+            if let frame = restored.frame {
+                anchorX = ((layout == .horizontalRight ? frame.maxX : frame.minX) - visible.minX) / visible.width
+                anchorY = ((layout == .verticalTop ? frame.maxY : frame.minY) - visible.minY) / visible.height
+            }
+        }
+        let seeded = HUDPositionRecord(version: record.version, displayUUID: record.displayUUID, legacyDisplayID: record.legacyDisplayID,
+            displayName: record.displayName, pixelWidth: record.pixelWidth, pixelHeight: record.pixelHeight,
+            relativeX: record.relativeX, relativeY: record.relativeY, anchorX: anchorX, anchorY: anchorY)
+        save(seeded, for: layout)
+        return .loaded(seeded)
     }
 
     public func load(_ layout: HUDLayoutMode) -> HUDPositionRecord? {
@@ -275,6 +299,17 @@ public final class HUDPositionStore {
     }
 
     public static func key(for layout: HUDLayoutMode) -> String {
-        layout == .horizontal ? horizontalKey : verticalKey
+        switch layout {
+        case .horizontalLeft: horizontalLeftKey
+        case .horizontalRight: horizontalKey
+        case .verticalTop: verticalTopKey
+        case .verticalBottom: verticalKey
+        }
+    }
+
+    private static func isValid(_ record: HUDPositionRecord) -> Bool {
+        record.version > 0 && record.relativeX.isFinite && record.relativeY.isFinite &&
+        (0...1).contains(record.relativeX) && (0...1).contains(record.relativeY) &&
+        record.anchorX.map(\.isFinite) != false && record.anchorY.map(\.isFinite) != false
     }
 }

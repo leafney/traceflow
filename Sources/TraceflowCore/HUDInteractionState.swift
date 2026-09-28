@@ -9,6 +9,10 @@ public struct HUDInteractionState {
         self.isPinned = isPinned
     }
 
+    public mutating func cancelDrag() {
+        isDragging = false
+    }
+
     @discardableResult
     public mutating func beginDrag() -> Bool {
         guard canBeginDrag else { return false }

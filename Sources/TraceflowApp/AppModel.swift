@@ -43,16 +43,15 @@ final class AppModel: ObservableObject {
 
     @Published var hudIconFraction: Double = 1
     @Published private(set) var hudBackgroundTransparency: Int
-    private var transparencyDirty = false
-    private var transparencyEditing = false
+    private var transparencyDraft: HUDTransparencyDraft
     private var transparencyCommit: DispatchWorkItem?
     private var settingsCloseObserver: NSObjectProtocol?
 
     func previewTransparency(_ value: Double) {
-        hudBackgroundTransparency = HUDBackgroundAppearance.normalize(value)
-        transparencyDirty = true
+        transparencyDraft.preview(value)
+        hudBackgroundTransparency = transparencyDraft.value
         transparencyCommit?.cancel()
-        if !transparencyEditing {
+        if !transparencyDraft.isEditing {
             let work = DispatchWorkItem { [weak self] in self?.commitTransparency() }
             transparencyCommit = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
@@ -60,7 +59,7 @@ final class AppModel: ObservableObject {
     }
 
     func setTransparencyEditing(_ editing: Bool) {
-        transparencyEditing = editing
+        transparencyDraft.setEditing(editing)
         transparencyCommit?.cancel()
         if !editing { commitTransparency() }
     }
@@ -68,9 +67,7 @@ final class AppModel: ObservableObject {
     func commitTransparency() {
         transparencyCommit?.cancel()
         transparencyCommit = nil
-        guard transparencyDirty else { return }
-        hudPreferences.saveTransparency(hudBackgroundTransparency)
-        transparencyDirty = false
+        if let value = transparencyDraft.takeCommit() { hudPreferences.saveTransparency(value) }
     }
 
     private let defaults: UserDefaults
@@ -97,7 +94,9 @@ final class AppModel: ObservableObject {
         hudLayoutMode = hudPreferences.loadLayoutMode()
         hudGlowMode = hudPreferences.loadGlowMode()
         isHUDPinned = hudPreferences.loadPinned()
-        hudBackgroundTransparency = hudPreferences.loadTransparency()
+        let savedTransparency = hudPreferences.loadTransparency()
+        transparencyDraft = HUDTransparencyDraft(savedTransparency)
+        hudBackgroundTransparency = savedTransparency
         hudIconFraction = hudBackgroundTransparency >= 90 ? 0 : 1
         scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
         expandedProjectKeys = Set(defaults.stringArray(forKey: "expandedProjectKeys") ?? [])

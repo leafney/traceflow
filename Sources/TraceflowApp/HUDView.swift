@@ -25,7 +25,6 @@ struct HUDView: View {
     private var horizontalContent: some View {
         HStack(spacing: 0) {
             icon.frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
-            horizontalSeparator
             ZStack {
                 title
                     .frame(width: HUDMetrics.titleTextLength, alignment: .leading)
@@ -33,7 +32,7 @@ struct HUDView: View {
                     .id(model.displayedSession?.id ?? "placeholder")
                     .transition(titleTransition(vertical: false))
             }
-            .frame(width: HUDMetrics.titleLength, height: HUDMetrics.shortAxis)
+            .frame(width: HUDMetrics.titleLength + HUDMetrics.separatorThickness, height: HUDMetrics.shortAxis)
             .clipped()
             .transaction { $0.animation = titleAnimation }
             horizontalSeparator
@@ -45,7 +44,6 @@ struct HUDView: View {
     private var verticalContent: some View {
         VStack(spacing: 0) {
             icon.frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength)
-            verticalSeparator
             ZStack {
                 VerticalMixedTitleView(title: model.displayedSession?.displayTitle ?? "Traceflow")
                     .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
@@ -53,7 +51,7 @@ struct HUDView: View {
                     .id(model.displayedSession?.id ?? "placeholder")
                     .transition(titleTransition(vertical: true))
             }
-            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
+            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength + HUDMetrics.separatorThickness)
             .clipped()
             .transaction { $0.animation = titleAnimation }
             verticalSeparator

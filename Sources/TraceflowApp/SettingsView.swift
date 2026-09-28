@@ -10,6 +10,7 @@ struct SettingsView: View {
         Form {
             Section("常规") {
                 Toggle("显示 HUD", isOn: $model.isHUDVisible)
+                Toggle("钉住 HUD", isOn: $model.isHUDPinned)
                 Picker("HUD 布局", selection: $model.hudLayoutMode) {
                     Text("横向左").tag(HUDLayoutMode.horizontalLeft)
                     Text("横向右").tag(HUDLayoutMode.horizontalRight)

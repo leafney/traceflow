@@ -1,10 +1,88 @@
 import AppKit
+import Combine
 import XCTest
 import TraceflowCore
 @testable import TraceflowApp
 
 @MainActor
 final class HUDMenuTests: XCTestCase {
+    func testActionsShareStateAndRepeatedLayoutDoesNotPublish() async throws {
+        _ = NSApplication.shared
+        let domain = "HUDMenuActions.\(UUID())"
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let model = AppModel(defaults: defaults)
+        let delegate = AppDelegate(model: model)
+        let menu = delegate.makeMenu()
+        delegate.observeHUDState(panel: nil)
+        let children = try XCTUnwrap(menu.items[2].submenu?.items)
+        var visibilityChanges = 0
+        var layoutChanges = 0
+        let visibility = model.$isHUDVisible.dropFirst().sink { _ in visibilityChanges += 1 }
+        let layout = model.$hudLayoutMode.dropFirst().sink { _ in layoutChanges += 1 }
+        defer { visibility.cancel(); layout.cancel() }
+
+        menu.performActionForItem(at: 0)
+        XCTAssertFalse(model.isHUDVisible)
+        XCTAssertEqual(visibilityChanges, 1)
+        menu.performActionForItem(at: 1)
+        XCTAssertTrue(model.isHUDPinned)
+        menu.items[2].submenu?.performActionForItem(at: 0)
+        menu.items[2].submenu?.performActionForItem(at: 3)
+        menu.items[2].submenu?.performActionForItem(at: 3)
+        XCTAssertEqual(model.hudLayoutMode, .verticalBottom)
+        XCTAssertEqual(layoutChanges, 2)
+        let refreshed = expectation(description: "最新模型值已刷新到菜单")
+        DispatchQueue.main.async { refreshed.fulfill() }
+        await fulfillment(of: [refreshed], timeout: 2)
+        XCTAssertEqual(menu.items[0].state, .off)
+        XCTAssertEqual(menu.items[1].state, .on)
+        XCTAssertEqual(children.map(\.state), [.off, .off, .off, .on])
+
+        // Settings binds directly to these same properties.
+        model.isHUDPinned = false
+        model.hudLayoutMode = .verticalTop
+        delegate.menuNeedsUpdate(menu)
+        XCTAssertEqual(menu.items[1].state, .off)
+        XCTAssertEqual(children.map(\.state), [.off, .off, .on, .off])
+        let reloaded = AppModel(defaults: defaults)
+        let restartDelegate = AppDelegate(model: reloaded)
+        let restartMenu = restartDelegate.makeMenu()
+        XCTAssertEqual(restartMenu.items[0].state, .off)
+        XCTAssertEqual(restartMenu.items[1].state, .off)
+        XCTAssertEqual(restartMenu.items[2].submenu?.items.map(\.state), [.off, .off, .on, .off])
+    }
+
+    func testHiddenWindowKeepsPinAndReceivesLatestLayout() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要桌面屏幕") }
+        let domain = "HUDMenuWindow.\(UUID())"
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(false, forKey: "hudVisible")
+        let model = AppModel(defaults: defaults)
+        let panel = HUDPanelController(model: model, defaults: defaults)
+        defer { panel.hide() }
+        let delegate = AppDelegate(model: model)
+        let menu = delegate.makeMenu()
+        delegate.observeHUDState(panel: panel)
+        menu.performActionForItem(at: 1)
+        menu.items[2].submenu?.performActionForItem(at: 0)
+        menu.items[2].submenu?.performActionForItem(at: 3)
+        let switched = expectation(description: "布局异步切换完成")
+        DispatchQueue.main.async { switched.fulfill() }
+        await fulfillment(of: [switched], timeout: 2)
+        XCTAssertFalse(panel.window?.isVisible == true)
+        XCTAssertTrue(panel.window?.ignoresMouseEvents == true)
+        XCTAssertEqual(panel.window?.frame.size, CGSize(width: 40, height: 420))
+        XCTAssertEqual(model.hudLayoutMode, .verticalBottom)
+        menu.performActionForItem(at: 0)
+        XCTAssertTrue(panel.window?.isVisible == true)
+        XCTAssertTrue(panel.window?.ignoresMouseEvents == true)
+        menu.performActionForItem(at: 0)
+        XCTAssertFalse(panel.window?.isVisible == true)
+    }
+
     func testInitialMenuStructureAndCheckmarks() throws {
         _ = NSApplication.shared
         let domain = "HUDMenuStructure.\(UUID())"

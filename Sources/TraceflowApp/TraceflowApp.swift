@@ -40,6 +40,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panelController = HUDPanelController(model: model)
         if model.isHUDVisible { panelController?.show() }
         configureStatusItem()
+        observeHUDState(panel: panelController)
+        model.startListening()
+        timer = Timer.scheduledTimer(timeInterval: 0.25, target: self, selector: #selector(timerFired), userInfo: nil, repeats: true)
+        RunLoop.main.add(timer!, forMode: .common)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+    }
+
+    func observeHUDState(panel: HUDPanelController?) {
+        panelController = panel
         visibilityObserver = model.$isHUDVisible.dropFirst().sink { [weak self] visible in
             if visible { self?.panelController?.show() } else { self?.panelController?.hide() }
             self?.scheduleMenuRefresh()
@@ -50,11 +60,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         layoutObserver = model.$hudLayoutMode.dropFirst().sink { [weak self] _ in
             self?.scheduleMenuRefresh()
         }
-        model.startListening()
-        timer = Timer.scheduledTimer(timeInterval: 0.25, target: self, selector: #selector(timerFired), userInfo: nil, repeats: true)
-        RunLoop.main.add(timer!, forMode: .common)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) { model.commitTransparency(); model.stopListening() }

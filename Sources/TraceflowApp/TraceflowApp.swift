@@ -21,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var timer: Timer?
     private var visibilityObserver: AnyCancellable?
+    private var pinObserver: AnyCancellable?
+    private var visibilityMenuItem: NSMenuItem?
+    private var pinMenuItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panelController = HUDPanelController(model: model)
@@ -28,7 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureStatusItem()
         visibilityObserver = model.$isHUDVisible.dropFirst().sink { [weak self] visible in
             if visible { self?.panelController?.show() } else { self?.panelController?.hide() }
-            self?.statusItem?.menu?.item(at: 0)?.title = visible ? "隐藏 HUD" : "显示 HUD"
+            self?.visibilityMenuItem?.title = visible ? "隐藏 HUD" : "显示 HUD"
+        }
+        pinObserver = model.$isHUDPinned.dropFirst().sink { [weak self] pinned in
+            self?.pinMenuItem?.title = pinned ? "取消钉住 HUD" : "钉住 HUD"
         }
         model.startListening()
         timer = Timer.scheduledTimer(timeInterval: 0.25, target: self, selector: #selector(timerFired), userInfo: nil, repeats: true)
@@ -50,7 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: "Traceflow")
         let menu = NSMenu()
-        menu.addItem(withTitle: model.isHUDVisible ? "隐藏 HUD" : "显示 HUD", action: #selector(toggleHUD), keyEquivalent: "")
+        visibilityMenuItem = menu.addItem(withTitle: model.isHUDVisible ? "隐藏 HUD" : "显示 HUD", action: #selector(toggleHUD), keyEquivalent: "")
+        pinMenuItem = menu.addItem(withTitle: model.isHUDPinned ? "取消钉住 HUD" : "钉住 HUD", action: #selector(togglePin), keyEquivalent: "")
         menu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(.separator())
         menu.addItem(withTitle: "退出 Traceflow", action: #selector(quit), keyEquivalent: "q")
@@ -62,7 +69,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleHUD() {
         model.isHUDVisible.toggle()
         if model.isHUDVisible { panelController?.show() } else { panelController?.hide() }
-        statusItem?.menu?.item(at: 0)?.title = model.isHUDVisible ? "隐藏 HUD" : "显示 HUD"
+        visibilityMenuItem?.title = model.isHUDVisible ? "隐藏 HUD" : "显示 HUD"
+    }
+
+    @objc private func togglePin() {
+        model.isHUDPinned.toggle()
+        pinMenuItem?.title = model.isHUDPinned ? "取消钉住 HUD" : "钉住 HUD"
     }
 
     @objc private func openSettings() { model.openSettingsWindow() }

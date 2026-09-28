@@ -58,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         visibilityMenuItem = menu.addItem(withTitle: model.isHUDVisible ? "隐藏 HUD" : "显示 HUD", action: #selector(toggleHUD), keyEquivalent: "")
         pinMenuItem = menu.addItem(withTitle: model.isHUDPinned ? "取消钉住 HUD" : "钉住 HUD", action: #selector(togglePin), keyEquivalent: "")
-        menu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        menu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "退出 Traceflow", action: #selector(quit), keyEquivalent: "q")
         for menuItem in menu.items { menuItem.target = self }

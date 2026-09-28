@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     }
     @Published var hudLayoutMode: HUDLayoutMode { didSet { hudPreferences.saveLayoutMode(hudLayoutMode) } }
     @Published var hudGlowMode: HUDGlowMode { didSet { hudPreferences.saveGlowMode(hudGlowMode) } }
+    @Published var hudTitleColor: HUDTitleColor { didSet { hudPreferences.saveTitleColor(hudTitleColor) } }
     @Published var isHUDPinned: Bool { didSet { hudPreferences.savePinned(isHUDPinned) } }
 
     @Published var hudIconFraction: Double = 1
@@ -93,6 +94,7 @@ final class AppModel: ObservableObject {
         timingMode = defaults.string(forKey: "carouselTimingMode").flatMap(CarouselTimingMode.init(rawValue:)) ?? .uniform
         hudLayoutMode = hudPreferences.loadLayoutMode()
         hudGlowMode = hudPreferences.loadGlowMode()
+        hudTitleColor = hudPreferences.loadTitleColor()
         isHUDPinned = hudPreferences.loadPinned()
         let savedTransparency = hudPreferences.loadTransparency()
         transparencyDraft = HUDTransparencyDraft(savedTransparency)

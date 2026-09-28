@@ -40,6 +40,19 @@ struct SettingsView: View {
                         Text("系统已减少透明效果").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                HStack {
+                    Text("标题颜色")
+                    Spacer()
+                    Text("黑色")
+                    Toggle("标题颜色", isOn: Binding(
+                        get: { model.hudTitleColor == .white },
+                        set: { model.hudTitleColor = $0 ? .white : .black }
+                    ))
+                    .labelsHidden()
+                    .accessibilityLabel("标题颜色")
+                    .accessibilityValue(model.hudTitleColor == .white ? "白色" : "黑色")
+                    Text("白色")
+                }
                 Button("恢复 HUD 默认位置") { model.resetHUDPosition() }
             }
             Section("Codex Hooks") {

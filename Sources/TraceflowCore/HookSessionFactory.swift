@@ -14,6 +14,7 @@ public enum HookSessionFactory {
             isIncludedInHUD: false,
             discoveredAt: now,
             lastUpdatedAt: now,
+            lastActivityAt: now,
             settingsListSortAt: now,
             rotationIndex: rotationIndex
         )

@@ -100,6 +100,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
     public var isIncludedInHUD: Bool
     public let discoveredAt: Date
     public var lastUpdatedAt: Date
+    public var lastActivityAt: Date?
     public var settingsListSortAt: Date?
     public let rotationIndex: Int
 
@@ -112,6 +113,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
         isIncludedInHUD: Bool = false,
         discoveredAt: Date,
         lastUpdatedAt: Date,
+        lastActivityAt: Date? = nil,
         settingsListSortAt: Date? = nil,
         rotationIndex: Int
     ) {
@@ -123,6 +125,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
         self.isIncludedInHUD = isIncludedInHUD
         self.discoveredAt = discoveredAt
         self.lastUpdatedAt = lastUpdatedAt
+        self.lastActivityAt = lastActivityAt
         self.settingsListSortAt = settingsListSortAt
         self.rotationIndex = rotationIndex
     }

@@ -7,7 +7,7 @@ final class SessionStoreTests: XCTestCase {
         let store = SessionStore(url: directory.appendingPathComponent("sessions.json"))
         let date = Date(timeIntervalSince1970: 123)
         let sortDate = Date(timeIntervalSince1970: 456)
-        let session = PersistedSession(sessionID: "s1", projectPath: "/work/app", projectName: "app", codexThreadName: "修复登录问题", isIncludedInHUD: false, discoveredAt: date, lastUpdatedAt: date, settingsListSortAt: sortDate, rotationIndex: 4)
+        let session = PersistedSession(sessionID: "s1", projectPath: "/work/app", projectName: "app", codexThreadName: "修复登录问题", isIncludedInHUD: false, discoveredAt: date, lastUpdatedAt: date, lastActivityAt: sortDate, settingsListSortAt: sortDate, rotationIndex: 4)
         try store.save([session])
         XCTAssertEqual(try store.load(), [session])
         let text = try String(contentsOf: directory.appendingPathComponent("sessions.json"))
@@ -29,6 +29,7 @@ final class SessionStoreTests: XCTestCase {
 
         XCTAssertNil(session.codexThreadName)
         XCTAssertNil(session.settingsListSortAt)
+        XCTAssertNil(session.lastActivityAt)
         XCTAssertEqual(session.effectiveSettingsListSortAt, session.lastUpdatedAt)
         try? FileManager.default.removeItem(at: directory)
     }

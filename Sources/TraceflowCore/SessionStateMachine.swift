@@ -32,6 +32,7 @@ public struct SessionStateMachine: Sendable {
         remember(envelope.eventID)
         snapshot.lastAppliedUptimeNanoseconds = envelope.capturedUptimeNanoseconds
         snapshot.persisted.lastUpdatedAt = now
+        snapshot.persisted.lastActivityAt = max(snapshot.persisted.lastActivityAt ?? now, now)
         if let cwd = envelope.payload.cwd {
             snapshot.persisted.projectPath = cwd
             snapshot.persisted.projectName = TitleBuilder.projectName(from: cwd)

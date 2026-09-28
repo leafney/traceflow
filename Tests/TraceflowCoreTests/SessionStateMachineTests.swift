@@ -78,19 +78,24 @@ final class SessionStateMachineTests: XCTestCase {
         var machine = makeMachine()
         let compact = envelope(.sessionStart, uptime: 1, source: "compact")
         XCTAssertEqual(machine.apply(compact, now: base).rejection, .ignoredCompaction)
+        XCTAssertNil(machine.snapshot.persisted.lastActivityAt)
 
         let event = envelope(.userPromptSubmit, uptime: 10, id: "same")
         XCTAssertTrue(machine.apply(event, now: base).accepted)
+        XCTAssertEqual(machine.snapshot.persisted.lastActivityAt, base)
         XCTAssertEqual(machine.apply(event, now: base).rejection, .duplicate)
         XCTAssertEqual(machine.apply(envelope(.stop, uptime: 9), now: base).rejection, .outOfOrder)
+        XCTAssertEqual(machine.snapshot.persisted.lastActivityAt, base)
     }
 
     func testCompletionExpiresAtTenMinutes() {
         var machine = makeMachine()
         _ = machine.apply(envelope(.stop, uptime: 1), now: base)
+        XCTAssertEqual(machine.snapshot.persisted.lastActivityAt, base)
         XCTAssertFalse(machine.expireCompletion(now: base.addingTimeInterval(599)))
         XCTAssertTrue(machine.expireCompletion(now: base.addingTimeInterval(600)))
         XCTAssertEqual(machine.snapshot.state, .idle)
+        XCTAssertEqual(machine.snapshot.persisted.lastActivityAt, base)
     }
 
     func testRepeatedStopRestartsCompletionTimeout() {

@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     }
     @Published var hudLayoutMode: HUDLayoutMode { didSet { hudPreferences.saveLayoutMode(hudLayoutMode) } }
     @Published var hudGlowMode: HUDGlowMode { didSet { hudPreferences.saveGlowMode(hudGlowMode) } }
+    @Published var isHUDPinned: Bool { didSet { hudPreferences.savePinned(isHUDPinned) } }
 
     private let defaults: UserDefaults
     private let hudPreferences: HUDPreferences
@@ -63,6 +64,7 @@ final class AppModel: ObservableObject {
         timingMode = defaults.string(forKey: "carouselTimingMode").flatMap(CarouselTimingMode.init(rawValue:)) ?? .uniform
         hudLayoutMode = hudPreferences.loadLayoutMode()
         hudGlowMode = hudPreferences.loadGlowMode()
+        isHUDPinned = hudPreferences.loadPinned()
         scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
         expandedProjectKeys = Set(defaults.stringArray(forKey: "expandedProjectKeys") ?? [])
         restoreSessions()

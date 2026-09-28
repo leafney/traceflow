@@ -14,6 +14,10 @@ final class HUDDragView: NSView {
     var dragFinished: ((Bool) -> Void)?
     private var drag: HUDDragTracking?
 
+    func cancelDrag() {
+        drag = nil
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -46,6 +50,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private let hostingView: NSHostingView<HUDView>
     private var layout: HUDLayoutMode
     private var layoutObserver: AnyCancellable?
+    private var pinObserver: AnyCancellable?
     private var isRestoringPosition = false
     private var isUserDragging = false
     private var isTemporaryPosition = false
@@ -70,6 +75,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
         panel.contentView = content.container
+        panel.ignoresMouseEvents = model.isHUDPinned
         super.init(window: panel)
         content.container.dragStarted = { [weak self] in
             self?.positionRetry?.cancel()
@@ -92,11 +98,24 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             // replacement root view observes the new layout mode, not the old one.
             DispatchQueue.main.async { self?.switchLayout(to: newLayout) }
         }
+        pinObserver = model.$isHUDPinned.dropFirst().sink { [weak self] pinned in
+            self?.setPinned(pinned)
+        }
     }
 
     required init?(coder: NSCoder) { nil }
     func show() { restorePosition(); window?.orderFrontRegardless() }
     func hide() { window?.orderOut(nil) }
+
+    private func setPinned(_ pinned: Bool) {
+        guard let window else { return }
+        if pinned {
+            (window.contentView as? HUDDragView)?.cancelDrag()
+            isUserDragging = false
+            restorePosition()
+        }
+        window.ignoresMouseEvents = pinned
+    }
 
     func windowDidMove(_ notification: Notification) {
         // AppKit also moves windows when screens disappear. Never persist here.

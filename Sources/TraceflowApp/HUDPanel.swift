@@ -153,6 +153,8 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func resetPosition() {
+        (window?.contentView as? HUDDragView)?.cancelDrag()
+        _ = interaction.finishDrag()
         finishTransition()
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         positionRetry?.cancel()
@@ -225,18 +227,15 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             finishTransition()
             return
         }
-        let began = Date()
+        let transition = HUDSizeTransition(start: start, target: target, initialIconFraction: fraction, targetIconFraction: endFraction)
+        let began = ProcessInfo.processInfo.systemUptime
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let progress = min(1, Date().timeIntervalSince(began) / 0.2)
-                let eased = progress * progress * (3 - 2 * progress)
-                self.model?.hudIconFraction = fraction + (endFraction - fraction) * eased
-                self.setDisplayFrame(NSRect(x: start.minX + (target.minX - start.minX) * eased,
-                    y: start.minY + (target.minY - start.minY) * eased,
-                    width: start.width + (target.width - start.width) * eased,
-                    height: start.height + (target.height - start.height) * eased))
-                if progress >= 1 { self.finishTransition() }
+                let sample = transition.sample(elapsed: ProcessInfo.processInfo.systemUptime - began)
+                self.model?.hudIconFraction = sample.iconFraction
+                self.setDisplayFrame(sample.frame)
+                if sample.complete { self.finishTransition() }
             }
         }
         transitionTimer = timer

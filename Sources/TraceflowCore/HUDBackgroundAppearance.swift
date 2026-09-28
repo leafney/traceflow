@@ -24,3 +24,29 @@ public struct HUDBackgroundAppearance {
                height: layout == .horizontal ? 40 : 420)
     }
 }
+
+/// A transition samples from its current visible frame when interrupted.
+public struct HUDSizeTransition {
+    public let start: CGRect
+    public let target: CGRect
+    public let initialIconFraction: Double
+    public let targetIconFraction: Double
+    public static let duration: Double = 0.2
+
+    public init(start: CGRect, target: CGRect, initialIconFraction: Double, targetIconFraction: Double) {
+        self.start = start
+        self.target = target
+        self.initialIconFraction = initialIconFraction
+        self.targetIconFraction = targetIconFraction
+    }
+
+    public func sample(elapsed: Double, reduceMotion: Bool = false) -> (frame: CGRect, iconFraction: Double, complete: Bool) {
+        let progress = reduceMotion ? 1 : min(1, max(0, elapsed / Self.duration))
+        let eased = progress * progress * (3 - 2 * progress)
+        return (CGRect(x: start.minX + (target.minX - start.minX) * eased,
+                       y: start.minY + (target.minY - start.minY) * eased,
+                       width: start.width + (target.width - start.width) * eased,
+                       height: start.height + (target.height - start.height) * eased),
+                initialIconFraction + (targetIconFraction - initialIconFraction) * eased, progress >= 1)
+    }
+}

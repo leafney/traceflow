@@ -1,6 +1,11 @@
 import Foundation
 import CoreFoundation
 
+public enum HUDRegion: String, Identifiable, Sendable {
+    case icon, title, lights
+    public var id: String { rawValue }
+}
+
 public enum HUDLayoutMode: String, CaseIterable, Identifiable, Sendable {
     case horizontalLeft
     case horizontalRight
@@ -10,6 +15,7 @@ public enum HUDLayoutMode: String, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
     public var isHorizontal: Bool { self == .horizontalLeft || self == .horizontalRight }
     public var lightsAtLeadingEdge: Bool { self == .horizontalLeft || self == .verticalTop }
+    public var regions: [HUDRegion] { lightsAtLeadingEdge ? [.lights, .title, .icon] : [.icon, .title, .lights] }
     public var sourceLayout: Self? {
         switch self {
         case .horizontalLeft: .horizontalRight

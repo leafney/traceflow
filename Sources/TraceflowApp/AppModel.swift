@@ -84,8 +84,7 @@ final class AppModel: ObservableObject {
     private var discovery = SessionDiscoveryCoordinator()
     private var lastRecentRefreshAt: Date = .distantPast
 
-    init() {
-        let defaults = UserDefaults.standard
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         hudPreferences = HUDPreferences(defaults: defaults)
         defaults.register(defaults: ["hudVisible": true, "displayDuration": 5.0])

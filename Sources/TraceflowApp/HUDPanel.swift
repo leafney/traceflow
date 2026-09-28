@@ -63,6 +63,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private var isTemporaryPosition = false
     private var positionRetry: DispatchWorkItem?
     private var positionRetryDeadline: Date?
+    var isRetryingPosition: Bool { positionRetry != nil && positionRetryDeadline != nil }
 
     init(model: AppModel, defaults: UserDefaults = .standard) {
         self.model = model
@@ -199,12 +200,19 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + HUDPositionRetryPolicy.interval, execute: retry)
     }
 
-    private func switchLayout(to newLayout: HUDLayoutMode) {
+    func switchLayout(to newLayout: HUDLayoutMode) {
         guard newLayout == model?.hudLayoutMode, newLayout != layout else { return }
         cancelInteraction()
+        positionRetry?.cancel()
+        positionRetry = nil
+        positionRetryDeadline = nil
         layout = newLayout
         model?.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
         restorePosition()
+        if isTemporaryPosition {
+            positionRetryDeadline = Date().addingTimeInterval(HUDPositionRetryPolicy.duration)
+            schedulePositionRetry()
+        }
     }
 
     private func setDisplayFrame(_ frame: NSRect) {
@@ -265,6 +273,9 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         let positionResult = positions.seedIfMissing(layout, screens: identities, visibleFrames: screens.map(\.visibleFrame))
         if case .corrupted = positionResult {
             model?.logDiagnostic("error=hud_position_corrupted layout=\(layout.rawValue)")
+        }
+        if case let .corruptedSource(source) = positionResult {
+            model?.logDiagnostic("error=hud_position_corrupted layout=\(source.rawValue) target_layout=\(layout.rawValue)")
         }
         if layout == .horizontalRight, case .missing = positionResult, migrateLegacyFrame() {
             savePosition()

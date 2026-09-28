@@ -43,6 +43,13 @@ final class HUDPreferencesTests: XCTestCase {
         }
     }
 
+    func testRegionOrderUsedByHUDKeepsTitleBetweenIconAndLights() {
+        XCTAssertEqual(HUDLayoutMode.horizontalLeft.regions, [.lights, .title, .icon])
+        XCTAssertEqual(HUDLayoutMode.horizontalRight.regions, [.icon, .title, .lights])
+        XCTAssertEqual(HUDLayoutMode.verticalTop.regions, [.lights, .title, .icon])
+        XCTAssertEqual(HUDLayoutMode.verticalBottom.regions, [.icon, .title, .lights])
+    }
+
     func testLegacyLowAndMediumMigrateToStandard() {
         for value in [0, 1] {
             defaults.removeObject(forKey: HUDPreferences.glowKey)

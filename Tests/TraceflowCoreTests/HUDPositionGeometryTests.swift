@@ -17,20 +17,6 @@ final class HUDPositionGeometryTests: XCTestCase {
         XCTAssertEqual(HUDMetrics.titleTextLength, HUDMetrics.titleLength - 12)
     }
 
-    func testLayoutTransitionSavesBeforeResizeAndRestore() {
-        XCTAssertEqual(HUDLayoutTransitionPlanner.steps(from: .horizontalRight, to: .verticalBottom), [
-            .save(.horizontalRight),
-            .resize(.verticalBottom, CGSize(width: 40, height: 420)),
-            .restore(.verticalBottom)
-        ])
-        XCTAssertEqual(HUDLayoutTransitionPlanner.steps(from: .verticalBottom, to: .horizontalRight), [
-            .save(.verticalBottom),
-            .resize(.horizontalRight, CGSize(width: 420, height: 40)),
-            .restore(.horizontalRight)
-        ])
-        XCTAssertTrue(HUDLayoutTransitionPlanner.steps(from: .verticalBottom, to: .verticalBottom).isEmpty)
-    }
-
     func testVerticalDefaultAtRightCenter() {
         XCTAssertEqual(HUDPositionGeometry.defaultFrame(for: .verticalBottom, visible: visible), CGRect(x: 1248, y: 390, width: 40, height: 420))
     }
@@ -129,8 +115,13 @@ final class HUDPositionGeometryTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: name) }
         let store = HUDPositionStore(defaults: defaults)
         defaults.set(Data("broken".utf8), forKey: HUDPositionStore.horizontalKey)
-        XCTAssertEqual(store.seedIfMissing(.horizontalLeft, screens: [], visibleFrames: []), .missing)
+        XCTAssertEqual(store.seedIfMissing(.horizontalLeft, screens: [], visibleFrames: []), .corruptedSource(.horizontalRight))
+        let fallback = HUDPositionDecision.resolve(layout: .horizontalLeft, stored: .corruptedSource(.horizontalRight), screens: [], visibleFrames: [visible], mainIndex: 0)
+        XCTAssertTrue(fallback.isTemporary)
+        XCTAssertFalse(fallback.shouldSave)
+        XCTAssertNil(store.load(.horizontalLeft))
         store.save(record(x: 0.2), for: .horizontalRight)
+        XCTAssertEqual(store.seedIfMissing(.horizontalLeft, screens: [], visibleFrames: []), .loaded(record(x: 0.2)))
         defaults.set(Data("broken".utf8), forKey: HUDPositionStore.horizontalLeftKey)
         XCTAssertEqual(store.seedIfMissing(.horizontalLeft, screens: [], visibleFrames: []), .corrupted)
     }

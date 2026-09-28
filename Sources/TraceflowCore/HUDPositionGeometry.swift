@@ -217,27 +217,11 @@ public struct HUDPositionDecision: Equatable {
     }
 }
 
-public enum HUDLayoutTransitionStep: Equatable {
-    case save(HUDLayoutMode)
-    case resize(HUDLayoutMode, CGSize)
-    case restore(HUDLayoutMode)
-}
-
-public enum HUDLayoutTransitionPlanner {
-    public static func steps(from oldLayout: HUDLayoutMode, to newLayout: HUDLayoutMode) -> [HUDLayoutTransitionStep] {
-        guard oldLayout != newLayout else { return [] }
-        return [
-            .save(oldLayout),
-            .resize(newLayout, HUDPositionGeometry.size(for: newLayout)),
-            .restore(newLayout)
-        ]
-    }
-}
-
 public enum HUDPositionLoadResult: Equatable {
     case missing
     case loaded(HUDPositionRecord)
     case corrupted
+    case corruptedSource(HUDLayoutMode)
 }
 
 public final class HUDPositionStore {
@@ -268,8 +252,10 @@ public final class HUDPositionStore {
     /// Seeds a new layout once without changing its source layout's record.
     public func seedIfMissing(_ layout: HUDLayoutMode, screens: [HUDScreenIdentity], visibleFrames: [CGRect]) -> HUDPositionLoadResult {
         let existing = loadResult(layout)
-        guard existing == .missing, let source = layout.sourceLayout,
-              case let .loaded(record) = loadResult(source) else { return existing }
+        guard existing == .missing, let source = layout.sourceLayout else { return existing }
+        let sourceResult = loadResult(source)
+        if sourceResult == .corrupted { return .corruptedSource(source) }
+        guard case let .loaded(record) = sourceResult else { return existing }
         var anchorX: Double?
         var anchorY: Double?
         if let index = HUDPositionGeometry.matchingScreen(for: record, among: screens), visibleFrames.indices.contains(index) {

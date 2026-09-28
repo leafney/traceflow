@@ -32,10 +32,9 @@ struct HUDView: View {
                     .id(model.displayedSession?.id ?? "placeholder")
                     .transition(titleTransition(vertical: false))
             }
-            .frame(width: HUDMetrics.titleLength + HUDMetrics.separatorThickness, height: HUDMetrics.shortAxis)
+            .frame(width: HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2, height: HUDMetrics.shortAxis)
             .clipped()
             .transaction { $0.animation = titleAnimation }
-            horizontalSeparator
             HStack(spacing: HUDMetrics.lightSpacing) { lights }
                 .frame(width: HUDMetrics.lightAreaLength, height: HUDMetrics.shortAxis)
         }
@@ -51,10 +50,9 @@ struct HUDView: View {
                     .id(model.displayedSession?.id ?? "placeholder")
                     .transition(titleTransition(vertical: true))
             }
-            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength + HUDMetrics.separatorThickness)
+            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2)
             .clipped()
             .transaction { $0.animation = titleAnimation }
-            verticalSeparator
             VStack(spacing: HUDMetrics.lightSpacing) { lights }
                 .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.lightAreaLength)
         }
@@ -115,19 +113,6 @@ struct HUDView: View {
         }
     }
 
-    private var separatorColor: Color {
-        .white.opacity(colorScheme == .dark ? 0.12 : 0.18)
-    }
-
-    private var horizontalSeparator: some View {
-        Rectangle().fill(separatorColor).frame(width: HUDMetrics.separatorThickness, height: 22)
-            .frame(width: HUDMetrics.separatorThickness, height: HUDMetrics.shortAxis)
-    }
-
-    private var verticalSeparator: some View {
-        Rectangle().fill(separatorColor).frame(width: 22, height: HUDMetrics.separatorThickness)
-            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.separatorThickness)
-    }
 }
 
 private enum StatusLightKind {

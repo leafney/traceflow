@@ -38,6 +38,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private var isUserDragging = false
     private var isTemporaryPosition = false
     private var positionRetry: DispatchWorkItem?
+    private var positionRetryDeadline: Date?
 
     init(model: AppModel, defaults: UserDefaults = .standard) {
         self.model = model
@@ -59,6 +60,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         super.init(window: panel)
         content.container.dragStarted = { [weak self] in
             self?.positionRetry?.cancel()
+            self?.positionRetryDeadline = nil
             self?.isUserDragging = true
         }
         content.container.dragFinished = { [weak self] moved in
@@ -67,7 +69,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             if moved {
                 self.savePosition()
                 self.isTemporaryPosition = false
-            } else { self.restorePosition() }
+            } else { self.ensureVisible() }
         }
         panel.delegate = self
         restorePosition()
@@ -90,6 +92,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     @objc private func resetPosition() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         positionRetry?.cancel()
+        positionRetryDeadline = nil
         isRestoringPosition = true
         window?.setFrame(HUDPositionGeometry.defaultFrame(for: layout, visible: screen.visibleFrame), display: true)
         isRestoringPosition = false
@@ -98,10 +101,24 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
     func ensureVisible() {
         positionRetry?.cancel()
+        positionRetryDeadline = Date().addingTimeInterval(HUDPositionRetryPolicy.duration)
         restorePosition()
-        let retry = DispatchWorkItem { [weak self] in self?.restorePosition() }
+        schedulePositionRetry()
+    }
+
+    private func schedulePositionRetry() {
+        guard HUDPositionRetryPolicy.shouldRetry(isTemporary: isTemporaryPosition, now: Date(), deadline: positionRetryDeadline) else {
+            positionRetryDeadline = nil
+            positionRetry = nil
+            return
+        }
+        let retry = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.restorePosition()
+            self.schedulePositionRetry()
+        }
         positionRetry = retry
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: retry)
+        DispatchQueue.main.asyncAfter(deadline: .now() + HUDPositionRetryPolicy.interval, execute: retry)
     }
 
     private func switchLayout(to newLayout: HUDLayoutMode) {

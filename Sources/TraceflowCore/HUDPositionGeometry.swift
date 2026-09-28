@@ -75,16 +75,31 @@ public enum HUDPositionGeometry {
     }
 
     private static func compatibleMatch(_ position: HUDPositionRecord, screens: [HUDScreenIdentity], candidates: [Int]) -> HUDScreenMatch {
-        let matches = candidates.filter { index in
-            let screen = screens[index]
-            if let name = position.displayName, screen.name != name { return false }
-            if let width = position.pixelWidth, screen.pixelWidth != width { return false }
-            if let height = position.pixelHeight, screen.pixelHeight != height { return false }
-            if position.displayName == nil && position.pixelWidth == nil && position.pixelHeight == nil {
-                return position.legacyDisplayID != nil && screen.displayID == position.legacyDisplayID
+        if let name = position.displayName {
+            let named = candidates.filter { screens[$0].name == name }
+            guard !named.isEmpty else { return .missing }
+            if let id = position.legacyDisplayID,
+               candidates.contains(where: { screens[$0].displayID == id && screens[$0].name != name }) { return .ambiguous }
+            if let width = position.pixelWidth, let height = position.pixelHeight {
+                let sameSize = named.filter { screens[$0].pixelWidth == width && screens[$0].pixelHeight == height }
+                if sameSize.count == 1 {
+                    if let id = position.legacyDisplayID,
+                       named.contains(where: { screens[$0].displayID == id && $0 != sameSize[0] }) { return .ambiguous }
+                    return .unique(sameSize[0])
+                }
+                if sameSize.count > 1 { return .ambiguous }
             }
-            return true
+            // The display may have changed resolution. Require both its name and
+            // legacy ID to remain unique; ID alone may have been reassigned.
+            if let id = position.legacyDisplayID {
+                let sameID = named.filter { screens[$0].displayID == id }
+                if sameID.count == 1 { return .unique(sameID[0]) }
+                if sameID.count > 1 { return .ambiguous }
+            }
+            return .missing
         }
+        guard let id = position.legacyDisplayID else { return .missing }
+        let matches = candidates.filter { screens[$0].displayID == id }
         if matches.count == 1 { return .unique(matches[0]) }
         return matches.isEmpty ? .missing : .ambiguous
     }
@@ -143,6 +158,16 @@ public enum HUDScreenMatch: Equatable {
     case unique(Int)
     case missing
     case ambiguous
+}
+
+public enum HUDPositionRetryPolicy {
+    public static let duration: TimeInterval = 10
+    public static let interval: TimeInterval = 1
+
+    public static func shouldRetry(isTemporary: Bool, now: Date, deadline: Date?) -> Bool {
+        guard isTemporary, let deadline else { return false }
+        return now < deadline
+    }
 }
 
 public struct HUDPositionDecision: Equatable {

@@ -141,6 +141,33 @@ final class HUDPositionGeometryTests: XCTestCase {
         XCTAssertEqual(HUDPositionGeometry.screenMatch(for: record(x: 0.6), among: [different]), .missing)
     }
 
+    func testLegacyScreenRestoresAfterResolutionChangeWhenNameAndIDAgree() {
+        let saved = HUDPositionRecord(version: 3, displayUUID: nil, legacyDisplayID: 7, displayName: "External", pixelWidth: 2400, pixelHeight: 1600, relativeX: 0.2, relativeY: 0.8)
+        let resized = HUDScreenIdentity(uuid: "new", displayID: 7, name: "External", pixelWidth: 3000, pixelHeight: 2000)
+        XCTAssertEqual(HUDPositionGeometry.screenMatch(for: saved, among: [resized]), .unique(0))
+        let target = CGRect(x: -3000, y: 0, width: 1500, height: 1000)
+        let decision = HUDPositionDecision.resolve(layout: .horizontal, stored: .loaded(saved), screens: [resized], visibleFrames: [target], mainIndex: 0)
+        XCTAssertEqual(decision.frame, HUDPositionGeometry.restoredFrame(for: .horizontal, relativeX: 0.2, relativeY: 0.8, visible: target))
+        XCTAssertFalse(decision.shouldSave)
+    }
+
+    func testLegacyResolutionChangeDoesNotGuessBetweenTwinScreens() {
+        let saved = HUDPositionRecord(version: 3, displayUUID: nil, legacyDisplayID: 7, displayName: "External", pixelWidth: 2400, pixelHeight: 1600, relativeX: 0.2, relativeY: 0.8)
+        let twins = [7, 8].map { HUDScreenIdentity(uuid: nil, displayID: UInt32($0), name: "External", pixelWidth: 3000, pixelHeight: 2000) }
+        XCTAssertEqual(HUDPositionGeometry.screenMatch(for: saved, among: twins), .unique(0))
+        let reassigned = [8, 9].map { HUDScreenIdentity(uuid: nil, displayID: UInt32($0), name: "External", pixelWidth: 3000, pixelHeight: 2000) }
+        XCTAssertEqual(HUDPositionGeometry.screenMatch(for: saved, among: reassigned), .missing)
+    }
+
+    func testRetryStopsWhenRecoveredOrDeadlineReached() {
+        let start = Date(timeIntervalSince1970: 100)
+        let deadline = start.addingTimeInterval(HUDPositionRetryPolicy.duration)
+        XCTAssertTrue(HUDPositionRetryPolicy.shouldRetry(isTemporary: true, now: start.addingTimeInterval(1), deadline: deadline))
+        XCTAssertFalse(HUDPositionRetryPolicy.shouldRetry(isTemporary: false, now: start.addingTimeInterval(1), deadline: deadline))
+        XCTAssertFalse(HUDPositionRetryPolicy.shouldRetry(isTemporary: true, now: deadline, deadline: deadline))
+        XCTAssertFalse(HUDPositionRetryPolicy.shouldRetry(isTemporary: true, now: start, deadline: nil))
+    }
+
     func testTemporaryFallbackDoesNotSaveAndReconnectRestoresRelativePosition() {
         let saved = record(x: 0.7, y: 0.3)
         let main = HUDScreenIdentity(uuid: "main", displayID: 2, name: "Laptop", pixelWidth: 1200, pixelHeight: 800)

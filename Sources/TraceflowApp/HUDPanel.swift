@@ -9,6 +9,23 @@ final class NonActivatingPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+final class HUDDragView: NSView {
+    var dragStarted: (() -> Void)?
+    var dragFinished: ((Bool) -> Void)?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        super.hitTest(point) == nil ? nil : self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        let original = window.frame
+        dragStarted?()
+        window.performDrag(with: event)
+        dragFinished?(window.frame.origin != original.origin)
+    }
+}
+
 @MainActor
 final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private let defaults: UserDefaults
@@ -18,6 +35,9 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private var layout: HUDLayoutMode
     private var layoutObserver: AnyCancellable?
     private var isRestoringPosition = false
+    private var isUserDragging = false
+    private var isTemporaryPosition = false
+    private var positionRetry: DispatchWorkItem?
 
     init(model: AppModel, defaults: UserDefaults = .standard) {
         self.model = model
@@ -37,6 +57,18 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         panel.hidesOnDeactivate = false
         panel.contentView = content.container
         super.init(window: panel)
+        content.container.dragStarted = { [weak self] in
+            self?.positionRetry?.cancel()
+            self?.isUserDragging = true
+        }
+        content.container.dragFinished = { [weak self] moved in
+            guard let self else { return }
+            self.isUserDragging = false
+            if moved {
+                self.savePosition()
+                self.isTemporaryPosition = false
+            } else { self.restorePosition() }
+        }
         panel.delegate = self
         restorePosition()
         NotificationCenter.default.addObserver(self, selector: #selector(resetPosition), name: .traceflowResetHUDPosition, object: nil)
@@ -48,22 +80,29 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     required init?(coder: NSCoder) { nil }
-    func show() { window?.orderFrontRegardless() }
+    func show() { restorePosition(); window?.orderFrontRegardless() }
     func hide() { window?.orderOut(nil) }
 
     func windowDidMove(_ notification: Notification) {
-        guard !isRestoringPosition else { return }
-        savePosition()
+        // AppKit also moves windows when screens disappear. Never persist here.
     }
 
     @objc private func resetPosition() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        positionRetry?.cancel()
         isRestoringPosition = true
         window?.setFrame(HUDPositionGeometry.defaultFrame(for: layout, visible: screen.visibleFrame), display: true)
         isRestoringPosition = false
         savePosition()
+        isTemporaryPosition = false
     }
-    func ensureVisible() { restorePosition() }
+    func ensureVisible() {
+        positionRetry?.cancel()
+        restorePosition()
+        let retry = DispatchWorkItem { [weak self] in self?.restorePosition() }
+        positionRetry = retry
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: retry)
+    }
 
     private func switchLayout(to newLayout: HUDLayoutMode) {
         guard newLayout != layout, let window, let model else { return }
@@ -71,7 +110,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         for step in HUDLayoutTransitionPlanner.steps(from: layout, to: newLayout) {
             switch step {
             case .save:
-                savePosition()
+                break // Drag completion already saved the user's permanent position.
             case let .resize(targetLayout, size):
                 layout = targetLayout
                 window.setContentSize(size)
@@ -94,26 +133,28 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     private func restorePosition() {
-        guard let window else { return }
+        guard let window, !isUserDragging else { return }
         isRestoringPosition = true
-        defer {
-            isRestoringPosition = false
-            savePosition()
-        }
+        defer { isRestoringPosition = false }
         let positionResult = positions.loadResult(layout)
         if case .corrupted = positionResult {
             model?.logDiagnostic("error=hud_position_corrupted layout=\(layout.rawValue)")
         }
-        if case let .loaded(position) = positionResult,
-           let screen = screen(matching: position) {
-            let frame = HUDPositionGeometry.restoredFrame(for: layout, relativeX: position.relativeX, relativeY: position.relativeY, visible: screen.visibleFrame)
-            window.setFrame(frame, display: true)
+        if layout == .horizontal, case .missing = positionResult, migrateLegacyFrame() {
+            savePosition()
+            isTemporaryPosition = false
             return
         }
-        if layout == .horizontal, case .missing = positionResult, migrateLegacyFrame() { return }
-        if let screen = NSScreen.main ?? NSScreen.screens.first {
-            window.setFrame(HUDPositionGeometry.defaultFrame(for: layout, visible: screen.visibleFrame), display: true)
+        let screens = NSScreen.screens
+        let identities = screens.map { screen in
+            let pixels = pixelSize(of: screen)
+            return HUDScreenIdentity(uuid: displayUUID(for: screen), displayID: displayID(for: screen), name: screen.localizedName, pixelWidth: pixels.width, pixelHeight: pixels.height)
         }
+        let mainIndex = NSScreen.main.flatMap { main in screens.firstIndex { $0 === main } } ?? screens.indices.first
+        let decision = HUDPositionDecision.resolve(layout: layout, stored: positionResult, screens: identities, visibleFrames: screens.map(\.visibleFrame), mainIndex: mainIndex)
+        isTemporaryPosition = decision.isTemporary
+        if let frame = decision.frame, frame != window.frame { window.setFrame(frame, display: true) }
+        if decision.shouldSave { savePosition() }
     }
 
     private func migrateLegacyFrame() -> Bool {
@@ -179,8 +220,8 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         return screens[index]
     }
 
-    private static func makeGlassContent(model: AppModel, size: NSSize) -> (container: NSView, hostingView: NSHostingView<HUDView>) {
-        let container = NSView(frame: NSRect(origin: .zero, size: size))
+    private static func makeGlassContent(model: AppModel, size: NSSize) -> (container: HUDDragView, hostingView: NSHostingView<HUDView>) {
+        let container = HUDDragView(frame: NSRect(origin: .zero, size: size))
         container.wantsLayer = true
         container.layer?.cornerRadius = min(size.width, size.height) / 2
         let effect = NSVisualEffectView(frame: container.bounds)

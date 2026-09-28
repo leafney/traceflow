@@ -98,7 +98,7 @@ final class AppModel: ObservableObject {
         let savedTransparency = hudPreferences.loadTransparency()
         transparencyDraft = HUDTransparencyDraft(savedTransparency)
         hudBackgroundTransparency = savedTransparency
-        hudIconFraction = hudBackgroundTransparency >= 90 ? 0 : 1
+        hudIconFraction = HUDBackgroundAppearance(hudBackgroundTransparency).compact ? 0 : 1
         scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
         expandedProjectKeys = Set(defaults.stringArray(forKey: "expandedProjectKeys") ?? [])
         restoreSessions()

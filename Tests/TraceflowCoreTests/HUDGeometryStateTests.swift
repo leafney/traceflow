@@ -10,7 +10,7 @@ final class HUDGeometryStateTests: XCTestCase {
             var state = HUDGeometryState(transparency: 95, pinned: false)
             state.restoreReference(reference)
             for _ in 0..<3 {
-                state.setTransparency(80)
+                state.setTransparency(79)
                 let expanded = try XCTUnwrap(state.target(layout: layout, visible: visible))
                 XCTAssertEqual(expanded, HUDPositionGeometry.clamped(reference, to: visible))
                 state.setTransparency(95)
@@ -22,7 +22,7 @@ final class HUDGeometryStateTests: XCTestCase {
 
     func testHiddenDragCancellationRejectsLateMouseUpAndAllowsRestore() throws {
         let saved = CGRect(x: 100, y: 50, width: 420, height: 40)
-        var state = HUDGeometryState(transparency: 80, pinned: false)
+        var state = HUDGeometryState(transparency: 79, pinned: false)
         state.restoreReference(saved)
         XCTAssertTrue(state.beginDrag())
         state.setTransparency(95)
@@ -35,7 +35,7 @@ final class HUDGeometryStateTests: XCTestCase {
     }
 
     func testDeferredGeometryKeepsLatestTargetAndCommitsDragUsingVisibleShape() {
-        var state = HUDGeometryState(transparency: 80, pinned: false)
+        var state = HUDGeometryState(transparency: 79, pinned: false)
         state.restoreReference(CGRect(x: 100, y: 50, width: 420, height: 40))
         XCTAssertTrue(state.beginDrag())
         for value in [95, 89, 100] {
@@ -54,7 +54,7 @@ final class HUDGeometryStateTests: XCTestCase {
         let reference = CGRect(x: 100, y: 50, width: 420, height: 40)
         state.restoreReference(reference)
         XCTAssertTrue(state.beginDrag())
-        state.setTransparency(80)
+        state.setTransparency(79)
         XCTAssertTrue(state.setPinned(true))
         XCTAssertFalse(state.finishDrag(frame: .zero, moved: true, layout: .horizontalRight))
         XCTAssertEqual(state.reference, reference)

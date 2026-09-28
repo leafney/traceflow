@@ -5,6 +5,16 @@ import TraceflowCore
 
 @MainActor
 final class HUDLayoutControllerTests: XCTestCase {
+    func testInitialIconVisibilityChangesAtEightyPercent() {
+        let domain = "HUDIconThreshold.\(UUID())"
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(79, forKey: HUDPreferences.transparencyKey)
+        XCTAssertEqual(AppModel(defaults: defaults).hudIconFraction, 1)
+        defaults.set(80, forKey: HUDPreferences.transparencyKey)
+        XCTAssertEqual(AppModel(defaults: defaults).hudIconFraction, 0)
+    }
+
     func testSwitchCancelsDragAndRejectsLateFinishWithoutSaving() throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }

@@ -5,7 +5,7 @@ final class HUDBackgroundAppearanceTests: XCTestCase {
     func testInterruptedAnimationStartsFromVisibleStateAndKeepsFixedEnd() {
         for layout in HUDLayoutMode.allCases {
             let reference = CGRect(origin: CGPoint(x: -800, y: 50), size: HUDPositionGeometry.size(for: layout))
-            let compact = HUDBackgroundAppearance(90).displayFrame(reference, layout: layout)
+            let compact = HUDBackgroundAppearance(80).displayFrame(reference, layout: layout)
             let shrinking = HUDSizeTransition(start: reference, target: compact, initialIconFraction: 1, targetIconFraction: 0)
             let middle = shrinking.sample(elapsed: 0.1)
             XCTAssertFalse(middle.complete)
@@ -42,7 +42,7 @@ final class HUDBackgroundAppearanceTests: XCTestCase {
             let restored = HUDPositionDecision.resolve(layout: layout, stored: loaded, screens: [screen], visibleFrames: [visible], mainIndex: 0)
             let frame = try XCTUnwrap(restored.frame)
             XCTAssertEqual(HUDBackgroundAppearance(95).displayFrame(frame, layout: layout), compact)
-            _ = HUDPositionGeometry.clamped(HUDBackgroundAppearance(80).displayFrame(frame, layout: layout), to: visible)
+            _ = HUDPositionGeometry.clamped(HUDBackgroundAppearance(79).displayFrame(frame, layout: layout), to: visible)
             XCTAssertEqual(HUDPositionStore(defaults: defaults).load(layout), record)
             XCTAssertFalse(restored.shouldSave)
         }
@@ -68,9 +68,9 @@ final class HUDBackgroundAppearanceTests: XCTestCase {
 
     func testThresholdAndFixedEndRoundTrip() {
         let reference = CGRect(x: -500, y: 70, width: 420, height: 40)
-        for value in [0, 80, 89, 90, 99, 100] {
+        for value in [0, 79, 80, 89, 90, 99, 100] {
             let appearance = HUDBackgroundAppearance(value)
-            XCTAssertEqual(appearance.compact, value >= 90)
+            XCTAssertEqual(appearance.compact, value >= 80)
             for layout in HUDLayoutMode.allCases {
                 let original = CGRect(origin: reference.origin, size: HUDPositionGeometry.size(for: layout))
                 let display = appearance.displayFrame(original, layout: layout)

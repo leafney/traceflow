@@ -9,7 +9,8 @@ public struct HUDBackgroundAppearance {
         guard value.isFinite else { return defaultTransparency }
         return Int(min(100, max(0, value)).rounded())
     }
-    public var compact: Bool { transparency >= 90 }
+    public static let iconHiddenThreshold = 80
+    public var compact: Bool { transparency >= Self.iconHiddenThreshold }
     public var backgroundAlpha: Double { 1 - Double(transparency) / 100 }
     public var materialAlpha: Double { Double(transparency) / 100 }
     public func size(_ layout: HUDLayoutMode) -> CGSize {

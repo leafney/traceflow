@@ -2,7 +2,7 @@
 
 Related discussion: [docs/discuss/2026-09-28-recent-session-priority-area.md](../discuss/2026-09-28-recent-session-priority-area.md)
 
-> 状态：用户已批准，实施中。实施前须完整阅读本文。本文中的“置顶”只指设置页的快速选择区域，不改变 HUD 轮播优先级或项目列表排序。
+> 状态：用户已批准，代码已实现并通过自动验证。本文中的“置顶”只指设置页的快速选择区域，不改变 HUD 轮播优先级或项目列表排序。
 
 ## Problem Statement
 
@@ -123,3 +123,8 @@ Related discussion: [docs/discuss/2026-09-28-recent-session-priority-area.md](..
 
 - 用户明确将本文交给低智能编码模型。实施时按“数据层 → 筛选层 → 读取层 → 协调层 → 界面层”推进，逐条核对验收表，不要只画出置顶区而遗漏自动发现、到期清理和删除后的重新导入竞态。
 - 讨论原文与逐问回答见顶部 `Related discussion`。若实现发现现有 Codex API 排序不满足安全提前停止，正确性优先：扫描所有页后在本地过滤近期项。
+
+## Implementation Verification
+
+- 已依次完成数据层、纯筛选层、最近摘要读取、应用协调、设置页两区；每阶段运行相关测试或构建并分别提交。
+- `swift test`：131 项通过；`swift build`：通过；`git diff --check`：通过。设置页视觉排版和真实 Codex 进程的发现延迟仍需在运行中的 macOS 应用里人工观察。

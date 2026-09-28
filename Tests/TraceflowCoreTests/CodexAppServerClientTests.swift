@@ -91,9 +91,11 @@ final class CodexAppServerClientTests: XCTestCase {
         XCTAssertEqual(result.sessions.first?.isIncludedInHUD, false)
         XCTAssertEqual(result.sessions.first?.codexThreadName, "更新后的名称")
         XCTAssertEqual(result.sessions.first?.settingsListSortAt, Date(timeIntervalSince1970: 30))
+        XCTAssertEqual(result.sessions.first?.lastActivityAt, Date(timeIntervalSince1970: 30))
         XCTAssertEqual(result.sessions.last?.projectName, "new-project")
         XCTAssertEqual(result.sessions.last?.isIncludedInHUD, false)
         XCTAssertEqual(result.sessions.last?.settingsListSortAt, Date(timeIntervalSince1970: 50))
+        XCTAssertEqual(result.sessions.last?.lastActivityAt, Date(timeIntervalSince1970: 50))
     }
 
     func testRepeatedImportPreservesSelectionAndExistingSortDate() {
@@ -119,6 +121,7 @@ final class CodexAppServerClientTests: XCTestCase {
         XCTAssertEqual(result.sessions.first?.isIncludedInHUD, true)
         XCTAssertEqual(result.sessions.first?.settingsListSortAt, originalSortDate)
         XCTAssertEqual(result.sessions.first?.lastUpdatedAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(result.sessions.first?.lastActivityAt, Date(timeIntervalSince1970: 100))
     }
 
     func testOfficialSourcesExcludeInternalThreads() {

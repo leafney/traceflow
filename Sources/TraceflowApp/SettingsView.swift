@@ -100,7 +100,7 @@ struct SettingsView: View {
             case .clearAll:
                 Alert(
                     title: Text("清空全部会话记录？"),
-                    message: Text("将删除 Traceflow 保存的全部本地会话记录和 HUD 选择，不会删除 Codex 中的原始对话。"),
+                    message: Text("将删除 Traceflow 保存的全部本地会话记录和 HUD 选择，不会删除 Codex 中的原始对话。手动同步或重启应用后可重新导入。"),
                     primaryButton: .destructive(Text("清空全部")) { model.clearSessions() },
                     secondaryButton: .cancel(Text("取消"))
                 )

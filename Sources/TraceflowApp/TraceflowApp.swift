@@ -17,8 +17,9 @@ enum TraceflowMain {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let model: AppModel
-    private var panelController: HUDPanelController?
-    private var statusItem: NSStatusItem?
+    private let defaults: UserDefaults
+    private(set) var panelController: HUDPanelController?
+    private(set) var statusItem: NSStatusItem?
     private var timer: Timer?
     private var visibilityObserver: AnyCancellable?
     private var pinObserver: AnyCancellable?
@@ -28,24 +29,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var layoutMenuItems: [HUDLayoutMode: NSMenuItem] = [:]
 
     override convenience init() {
-        self.init(model: AppModel())
+        self.init(model: AppModel(), defaults: .standard)
     }
 
-    init(model: AppModel) {
+    init(model: AppModel, defaults: UserDefaults = .standard) {
         self.model = model
+        self.defaults = defaults
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        panelController = HUDPanelController(model: model)
-        if model.isHUDVisible { panelController?.show() }
-        configureStatusItem()
-        observeHUDState(panel: panelController)
+        installHUDControls()
         model.startListening()
         timer = Timer.scheduledTimer(timeInterval: 0.25, target: self, selector: #selector(timerFired), userInfo: nil, repeats: true)
         RunLoop.main.add(timer!, forMode: .common)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+    }
+
+    func installHUDControls() {
+        panelController = HUDPanelController(model: model, defaults: defaults)
+        if model.isHUDVisible { panelController?.show() }
+        configureStatusItem()
+        observeHUDState(panel: panelController)
     }
 
     func observeHUDState(panel: HUDPanelController?) {

@@ -6,6 +6,49 @@ import TraceflowCore
 
 @MainActor
 final class HUDMenuTests: XCTestCase {
+    func testInstalledStatusMenuTracksSettingsAndWindow() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要桌面屏幕") }
+        let domain = "HUDInstalledMenu.\(UUID())"
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(false, forKey: "hudVisible")
+        let model = AppModel(defaults: defaults)
+        let delegate = AppDelegate(model: model, defaults: defaults)
+        delegate.installHUDControls()
+        defer {
+            delegate.panelController?.hide()
+            if let item = delegate.statusItem { NSStatusBar.system.removeStatusItem(item) }
+        }
+        let menu = try XCTUnwrap(delegate.statusItem?.menu)
+        let panel = try XCTUnwrap(delegate.panelController?.window)
+        menu.update()
+        XCTAssertEqual(menu.items[0].state, .off)
+        XCTAssertFalse(panel.isVisible)
+
+        // The settings controls bind to these properties; exercise the same path.
+        model.isHUDVisible = true
+        model.isHUDPinned = true
+        model.hudLayoutMode = .verticalTop
+        let updated = expectation(description: "窗口布局和菜单状态已更新")
+        DispatchQueue.main.async { updated.fulfill() }
+        await fulfillment(of: [updated], timeout: 2)
+        menu.update()
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertTrue(panel.ignoresMouseEvents)
+        XCTAssertEqual(panel.frame.size, CGSize(width: 40, height: 420))
+        XCTAssertEqual(menu.items[0].state, .on)
+        XCTAssertEqual(menu.items[1].state, .on)
+        XCTAssertEqual(menu.items[2].submenu?.items.map(\.state), [.off, .off, .on, .off])
+
+        menu.performActionForItem(at: 0)
+        menu.performActionForItem(at: 1)
+        XCTAssertFalse(model.isHUDVisible)
+        XCTAssertFalse(model.isHUDPinned)
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertFalse(panel.ignoresMouseEvents)
+    }
+
     func testActionsShareStateAndRepeatedLayoutDoesNotPublish() async throws {
         _ = NSApplication.shared
         let domain = "HUDMenuActions.\(UUID())"

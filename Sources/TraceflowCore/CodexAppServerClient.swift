@@ -125,6 +125,20 @@ public enum CodexThreadImporter {
     }
 }
 
+enum RecentThreadPageFilter {
+    static func accepted(_ page: CodexThreadListPage, since: Date, now: Date) -> [CodexThreadSummary] {
+        page.threads.filter {
+            $0.updatedAt > since && $0.updatedAt <= now && SessionSourcePolicy.isAllowedAppServerKind($0.sourceKind)
+        }
+    }
+
+    static func reachedCutoff(_ page: CodexThreadListPage, since: Date) -> Bool {
+        let dates = page.threads.map(\.updatedAt)
+        guard zip(dates, dates.dropFirst()).allSatisfy({ $0 >= $1 }) else { return false }
+        return dates.contains { $0 <= since }
+    }
+}
+
 public enum CodexAppServerError: LocalizedError, Equatable {
     case launchFailed(String)
     case connectionClosed
@@ -162,6 +176,14 @@ public struct CodexAppServerClient: Sendable {
     }
 
     public func listThreads() throws -> [CodexThreadSummary] {
+        try listThreads(since: nil, now: nil)
+    }
+
+    public func listRecentThreads(since: Date, now: Date) throws -> [CodexThreadSummary] {
+        try listThreads(since: since, now: now)
+    }
+
+    private func listThreads(since: Date?, now: Date?) throws -> [CodexThreadSummary] {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
@@ -237,8 +259,13 @@ public struct CodexAppServerClient: Sendable {
             )
             let result = try checkedResult(collector.waitForResponse(id: requestID, timeout: remainingTimeout(until: overallDeadline)))
             let page = try CodexThreadListPage.decode(from: result)
-            allThreads.append(contentsOf: page.threads)
-            cursor = page.nextCursor
+            if let since, let now {
+                allThreads.append(contentsOf: RecentThreadPageFilter.accepted(page, since: since, now: now))
+                cursor = RecentThreadPageFilter.reachedCutoff(page, since: since) ? nil : page.nextCursor
+            } else {
+                allThreads.append(contentsOf: page.threads)
+                cursor = page.nextCursor
+            }
             requestID += 1
         } while cursor != nil
 

@@ -34,6 +34,27 @@ final class CodexAppServerClientTests: XCTestCase {
         XCTAssertThrowsError(try CodexThreadListPage.decode(from: ["data": [["id": "missing-fields"]]]))
     }
 
+    func testRecentPageFiltersBoundaryFutureAndInternalThreads() {
+        let since = Date(timeIntervalSince1970: 1_000)
+        let now = Date(timeIntervalSince1970: 1_600)
+        let page = CodexThreadListPage(threads: [
+            summary("future", 1_601), summary("recent", 1_001), summary("boundary", 1_000),
+            summary("internal", 1_200, source: "subAgentReview"),
+        ], nextCursor: "next")
+
+        XCTAssertEqual(RecentThreadPageFilter.accepted(page, since: since, now: now).map(\.id), ["recent"])
+        XCTAssertFalse(RecentThreadPageFilter.reachedCutoff(page, since: since))
+    }
+
+    func testRecentPageStopsAtCutoffOnlyForDescendingPage() {
+        let since = Date(timeIntervalSince1970: 1_000)
+        let sorted = CodexThreadListPage(threads: [summary("a", 1_500), summary("b", 1_000)], nextCursor: "next")
+        let unsorted = CodexThreadListPage(threads: [summary("b", 1_000), summary("a", 1_500)], nextCursor: "next")
+
+        XCTAssertTrue(RecentThreadPageFilter.reachedCutoff(sorted, since: since))
+        XCTAssertFalse(RecentThreadPageFilter.reachedCutoff(unsorted, since: since))
+    }
+
     func testImportAddsThreadsAndPreservesExistingHUDSelection() {
         let existing = PersistedSession(
             sessionID: "existing",
@@ -130,5 +151,12 @@ final class CodexAppServerClientTests: XCTestCase {
             XCTAssertEqual(error as? CodexAppServerError, .timeout)
         }
         XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+    }
+
+    private func summary(_ id: String, _ updatedAt: TimeInterval, source: String? = "cli") -> CodexThreadSummary {
+        CodexThreadSummary(
+            id: id, name: nil, cwd: "/work/app", createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: updatedAt), sourceKind: source
+        )
     }
 }

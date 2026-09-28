@@ -19,6 +19,7 @@ public final class HUDPreferences {
     public static let layoutKey = "hudLayoutMode"
     public static let glowKey = "hudGlowMode"
     public static let legacyGlowKey = "glowStrength"
+    public static let pinnedKey = "hudPinned"
 
     private let defaults: UserDefaults
 
@@ -55,6 +56,17 @@ public final class HUDPreferences {
 
     public func saveGlowMode(_ mode: HUDGlowMode) {
         defaults.set(mode.rawValue, forKey: Self.glowKey)
+    }
+
+    public func loadPinned() -> Bool {
+        guard let number = defaults.object(forKey: Self.pinnedKey) as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+        return number.boolValue
+    }
+
+    public func savePinned(_ pinned: Bool) {
+        defaults.removeObject(forKey: Self.pinnedKey)
+        defaults.set(pinned, forKey: Self.pinnedKey)
     }
 
     private func legacyGlowValue() -> Int? {

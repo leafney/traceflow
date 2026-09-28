@@ -84,4 +84,17 @@ final class HUDPreferencesTests: XCTestCase {
         XCTAssertEqual(preferences.loadGlowMode(), .strong)
         XCTAssertEqual(preferences.loadLayoutMode(), .vertical)
     }
+
+    func testPinnedDefaultsToFalseRejectsInvalidStorageAndSurvivesReload() {
+        let preferences = HUDPreferences(defaults: defaults)
+        XCTAssertFalse(preferences.loadPinned())
+        defaults.set("true", forKey: HUDPreferences.pinnedKey)
+        XCTAssertFalse(preferences.loadPinned())
+        defaults.set(1, forKey: HUDPreferences.pinnedKey)
+        XCTAssertFalse(preferences.loadPinned())
+        preferences.savePinned(true)
+        XCTAssertTrue(HUDPreferences(defaults: defaults).loadPinned())
+        preferences.savePinned(false)
+        XCTAssertFalse(HUDPreferences(defaults: defaults).loadPinned())
+    }
 }

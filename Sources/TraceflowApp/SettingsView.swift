@@ -42,7 +42,21 @@ struct SettingsView: View {
                 if let message = model.hooksActionMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
                 sessionDataRecoveryActions
             }
-            Section("会话") {
+            Section("置顶区") {
+                if model.recentSessions.isEmpty {
+                    Text("最近 10 分钟没有动态").foregroundStyle(.secondary)
+                }
+                if model.isDiscoveringRecentSessions && model.recentSessions.isEmpty {
+                    ProgressView("正在读取最近会话……").controlSize(.small)
+                }
+                if let message = model.recentDiscoveryMessage {
+                    Text(message).font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(model.recentSessions) { session in
+                    recentSessionRow(session)
+                }
+            }
+            Section("会话区") {
                 HStack {
                     Button("同步 Codex 会话") { model.syncCodexSessions() }
                         .disabled(model.isSyncingSessions || !model.sessionDataHealth.allowsSaving)
@@ -163,6 +177,32 @@ struct SettingsView: View {
             .disabled(!model.sessionDataHealth.allowsSaving)
         }
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func recentSessionRow(_ session: SessionSnapshot) -> some View {
+        let title = sessionListTitle(session)
+        let project = session.persisted.projectName ?? "未知项目"
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).lineLimit(1).help(title)
+                Text("\(project) · \(session.persisted.lastActivityAt?.formatted() ?? "未知时间") · \(String(session.id.prefix(8)))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(session.persisted.projectPath ?? project)
+            }
+            Spacer(minLength: 8)
+            Text(runtimeStateTitle(session.state)).foregroundStyle(.secondary)
+            Toggle("参与 HUD", isOn: Binding(
+                get: { session.persisted.isIncludedInHUD },
+                set: { model.setIncluded($0, sessionID: session.id) }
+            ))
+            .toggleStyle(.switch)
+            .labelsHidden()
+            .disabled(!model.sessionDataHealth.allowsSaving)
+            .accessibilityLabel("\(project) \(title) 参与 HUD")
+        }
     }
 
     @ViewBuilder

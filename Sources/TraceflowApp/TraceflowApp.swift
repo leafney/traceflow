@@ -39,7 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) { model.stopListening() }
 
-    @objc private func didWake() { model.recheckCompletionTimeouts() }
+    @objc private func didWake() {
+        model.recheckCompletionTimeouts()
+        panelController?.ensureVisible()
+    }
     @objc private func screenChanged() { panelController?.ensureVisible() }
     @objc private func timerFired() { model.tick() }
 

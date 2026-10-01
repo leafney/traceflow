@@ -58,6 +58,8 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private var layout: HUDLayoutMode
     private var geometry: HUDGeometryState
     private var layoutObserver: AnyCancellable?
+    private var layoutRedrawGeneration: UInt64 = 0
+    private var layoutRedrawWork: DispatchWorkItem?
     private var pinObserver: AnyCancellable?
     private var isRestoringPosition = false
     private var isTemporaryPosition = false
@@ -111,7 +113,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(resetPosition), name: .traceflowResetHUDPosition, object: nil)
         layoutObserver = model.$hudLayoutMode.dropFirst().sink { [weak self] newLayout in
             // Published emits before the stored value changes. Defer so the
-            // replacement root view observes the new layout mode, not the old one.
+            // layout and redraw observe the new layout mode, not the old one.
             DispatchQueue.main.async { self?.switchLayout(to: newLayout) }
         }
         transparencyObserver = model.$hudBackgroundTransparency.dropFirst().sink { [weak self] value in
@@ -137,6 +139,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { nil }
     func show() { restorePosition(); window?.orderFrontRegardless() }
     func hide() {
+        cancelLayoutRedraw()
         window?.orderOut(nil)
         cancelInteraction()
         restorePosition()
@@ -202,6 +205,13 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
 
     func switchLayout(to newLayout: HUDLayoutMode) {
         guard newLayout == model?.hudLayoutMode, newLayout != layout else { return }
+        cancelLayoutRedraw()
+        let generation = layoutRedrawGeneration
+        let oldHostingBounds = hostingView.bounds
+        let oldContainerBounds = window?.contentView?.bounds ?? .zero
+        // Invalidate the old content before a horizontal/vertical resize clips it.
+        hostingView.setNeedsDisplay(oldHostingBounds)
+        window?.contentView?.setNeedsDisplay(oldContainerBounds)
         cancelInteraction()
         positionRetry?.cancel()
         positionRetry = nil
@@ -209,10 +219,50 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         layout = newLayout
         model?.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
         restorePosition()
+        requestLayoutRedraw(expectedLayout: newLayout, generation: generation,
+                            oldHostingBounds: oldHostingBounds, oldContainerBounds: oldContainerBounds)
         if isTemporaryPosition {
             positionRetryDeadline = Date().addingTimeInterval(HUDPositionRetryPolicy.duration)
             schedulePositionRetry()
         }
+    }
+
+    private func cancelLayoutRedraw() {
+        layoutRedrawGeneration &+= 1
+        layoutRedrawWork?.cancel()
+        layoutRedrawWork = nil
+    }
+
+    private func invalidateLayoutContent(oldHostingBounds: NSRect, oldContainerBounds: NSRect) {
+        guard let container = window?.contentView else { return }
+        container.needsLayout = true
+        hostingView.needsLayout = true
+        container.layoutSubtreeIfNeeded()
+        let hostDirty = oldHostingBounds.union(hostingView.bounds).intersection(hostingView.bounds)
+        let containerDirty = oldContainerBounds.union(container.bounds).intersection(container.bounds)
+        if !hostDirty.isEmpty { hostingView.setNeedsDisplay(hostDirty) }
+        if !containerDirty.isEmpty { container.setNeedsDisplay(containerDirty) }
+    }
+
+    private func requestLayoutRedraw(expectedLayout: HUDLayoutMode, generation: UInt64,
+                                     oldHostingBounds: NSRect, oldContainerBounds: NSRect) {
+        guard generation == layoutRedrawGeneration, layout == expectedLayout,
+              model?.hudLayoutMode == expectedLayout, window?.contentView != nil else { return }
+        invalidateLayoutContent(oldHostingBounds: oldHostingBounds, oldContainerBounds: oldContainerBounds)
+        // SwiftUI may finish updating after AppKit resizes the existing hosting view.
+        // One main-queue final redraw covers that boundary, including same-size swaps.
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.layoutRedrawGeneration == generation,
+                      self.layout == expectedLayout, self.model?.hudLayoutMode == expectedLayout else { return }
+                self.layoutRedrawWork = nil
+                self.invalidateLayoutContent(oldHostingBounds: oldHostingBounds, oldContainerBounds: oldContainerBounds)
+                guard let window = self.window, window.isVisible else { return }
+                window.contentView?.displayIfNeeded()
+            }
+        }
+        layoutRedrawWork = work
+        DispatchQueue.main.async(execute: work)
     }
 
     private func setDisplayFrame(_ frame: NSRect) {

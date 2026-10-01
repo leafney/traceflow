@@ -2,6 +2,19 @@
 
 Traceflow 是 macOS 14+ 本机菜单栏应用，通过 Codex Hooks 展示 CLI 与桌面客户端会话状态。
 
+## 应用图标
+
+应用使用深蓝同心多环图标，每个环代表一个会话，红黄绿灯位呼应状态提示；菜单栏使用同一结构的单色简化图标，自动适配深浅色。它们是固定品牌图形，不表示实时会话数量或状态。
+
+可编辑母版为 `packaging/TraceflowIcon.svg` 和 `packaging/TraceflowMenuIcon.svg`。在 macOS 使用系统 Swift、AppKit 与 iconutil 重新生成：
+
+```bash
+scripts/generate-app-icon.sh
+scripts/build-app.sh
+```
+
+生成器同时输出母版与 `packaging/Traceflow.icns`，参数由 `scripts/generate-app-icon.swift` 统一维护；修改设计时需同步菜单栏绘制模块。生成后的三个资源纳入版本控制，普通构建直接复制图标包，不重新生成。设计规范见 [`docs/plan/2026-10-01-concentric-session-icon.md`](docs/plan/2026-10-01-concentric-session-icon.md)。
+
 ## 构建与运行
 
 ```bash

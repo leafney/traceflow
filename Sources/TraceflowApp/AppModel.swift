@@ -22,6 +22,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var sessionDataHealth: SessionDataHealth = .healthy
     @Published private(set) var isRebuildingSessions = false
     @Published var sessionSyncMessage: String?
+    @Published var autoEnableNewSessions: Bool {
+        didSet { defaults.set(autoEnableNewSessions, forKey: "autoEnableNewSessions") }
+    }
     @Published var isHUDVisible: Bool { didSet { defaults.set(isHUDVisible, forKey: "hudVisible") } }
     @Published var displayDuration: Double {
         didSet {
@@ -86,6 +89,7 @@ final class AppModel: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        autoEnableNewSessions = defaults.bool(forKey: "autoEnableNewSessions")
         hudPreferences = HUDPreferences(defaults: defaults)
         defaults.register(defaults: ["hudVisible": true, "displayDuration": 5.0])
         isHUDVisible = defaults.bool(forKey: "hudVisible")

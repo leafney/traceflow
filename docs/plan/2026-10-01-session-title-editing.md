@@ -3,7 +3,7 @@ Related discussion: [docs/discuss/2026-10-01-session-title-editing.md](../discus
 # 会话标题编辑
 
 日期：2026-10-01
-状态：用户已确认继续，实施中。
+状态：四阶段实现完成，自动验证通过。
 
 ## 问题
 
@@ -172,3 +172,17 @@ lastUpdatedAt、lastActivityAt、settingsListSortAt、discoveredAt、rotationInd
 ## 连续实施授权
 
 用户明确批准全部 PRD，要求每阶段完成对应验证并提交，随后立即继续下一阶段。此授权覆盖逐主要文件等待确认的旧流程。
+
+
+## 实施验收记录
+
+- 阶段一：customTitle JSON 字段、统一标题优先级、100 Character 校验完成。14 项核心测试通过；提交 f1b6955。
+- 阶段二：先落盘后发布的保存/恢复接口、失败保留旧状态、当前 HUD 仅刷新文本、合并保留自定义字段完成。9 项入口及标题测试通过；提交 8582615。
+- 阶段三：两个列表标题原生按钮、共用 sheet、本地草稿、恢复/取消、校验错误和焦点完成；swift build 通过；提交 1ab4c4c。
+- 阶段四：最新默认名恢复、删除后不重建旧名测试及系统背景修正完成。最终完整 swift test 195 项通过，零失败；构建及 git diff --check 通过。见本记录所在提交。
+
+可重复验证：`swift test --filter SessionTitleEditingTests` 和 `swift test --filter SessionTitleEditorTests`。测试通过真实 socket/模拟同步验证后台更新后保存、两个列表/当前展示文本、待机不展示、非当前项不抢占、周期不重置、候选保存失败不发布、旧文件加载、自定义字段重启模型恢复。失败夹具移动独立数据目录并用普通文件阻断目录创建，不触碰用户数据。
+
+已查看真实 SettingsView 在 680 点宽度的深浅色渲染和编辑弹窗深浅色截图，文字/输入框/按钮完整可见，两区域标题一致。临时截图驱动移出长期测试目标。HUD 横纵继续读取共同 displayTitle，无布局改动。
+
+验收边界：鼠标实际点击、中文输入法组合、Enter/Escape 的真实按键、VoiceOver、退出进程后重启及 HUD 横纵实屏互动尚未手动执行。已实现相关原生按钮/键盘快捷键/焦点/草稿/错误路径并自动验证模型恢复；不能将这些自动结果称为实际交互验收。本轮没有部署或修改 Codex 原名。

@@ -56,6 +56,7 @@ struct SessionTitleEditorView: View {
         }
         .padding(24)
         .frame(width: 480)
+        .background(.background)
         .onAppear { titleFocused = true }
         .onChange(of: draft) { saveError = nil }
     }

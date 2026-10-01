@@ -47,3 +47,9 @@ scripts/poc/run-cli-poc.sh
 “自动启用新会话”只控制后续自动发现或 Hook 新增项，手动同步历史项仍默认关闭。启用的待机会话不进入 HUD 轮播，收到活动事件后按现有调度展示。
 
 详细规范见 [`docs/plan/2026-09-21-traceflow-macos-mvp.md`](docs/plan/2026-09-21-traceflow-macos-mvp.md)。
+
+## 会话标题编辑
+
+点击置顶区或会话区的标题，编辑本地显示名称。单行最多 100 个字符，支持保存、取消及恢复默认；HUD 保留项目名。同步和 Hook 不覆盖自定义标题，改名不会启用会话或重置轮播。保存失败时保留原标题和草稿。
+
+相关业务验证：`swift test --filter SessionTitleEditingTests`。

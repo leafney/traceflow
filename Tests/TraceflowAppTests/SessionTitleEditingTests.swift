@@ -30,10 +30,16 @@ final class SessionTitleEditingTests: XCTestCase {
         expected = latest
         expected.persisted.customTitle = "另一个标题"
         XCTAssertEqual(try fixture.session("title"), expected)
+        let now = Int64(Date().timeIntervalSince1970) - 1
+        let rows: [[String: Any]] = [["id": "title", "name": "最新默认名称", "cwd": "/work/qa", "createdAt": now, "updatedAt": now, "source": "cli"]]
+        try JSONSerialization.data(withJSONObject: rows).write(to: fixture.root.appendingPathComponent("threads.json"))
+        model.syncCodexSessions()
+        try await fixture.waitUntil { !model.isSyncingSessions }
+        XCTAssertEqual(try fixture.session("title").persisted.customTitle, "另一个标题")
         try model.resetCustomTitle(sessionID: "title")
         XCTAssertNil(try fixture.session("title").persisted.customTitle)
         XCTAssertEqual(model.displayedSession?.state, .attention)
-        XCTAssertEqual(model.displayedSession?.displayTitle, "qa")
+        XCTAssertEqual(model.displayedSession?.displayTitle, "qa · 最新默认名称")
     }
 
     func testRenameDoesNotRestartRotationOrDisplayIdleSession() async throws {
@@ -88,5 +94,20 @@ final class SessionTitleEditingTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: backup.appendingPathComponent("sessions.json")), bytes)
         XCTAssertFalse(fixture.model.sessionDataHealth.allowsSaving)
         XCTAssertThrowsError(try fixture.model.resetCustomTitle(sessionID: "title"))
+    }
+
+    func testDeletedRecordCannotBeRenamedOrRecoverItsCustomTitle() async throws {
+        _ = NSApplication.shared
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.hook("deleted", event: .sessionStart)
+        try fixture.model.setCustomTitle("旧标题", sessionID: "deleted")
+        fixture.model.deleteSession("deleted")
+        XCTAssertThrowsError(try fixture.model.setCustomTitle("不能重建", sessionID: "deleted")) {
+            XCTAssertEqual($0 as? SessionTitleSaveError, .missingSession)
+        }
+        try await fixture.discover(["deleted"], manual: true)
+        XCTAssertNil(try fixture.session("deleted").persisted.customTitle)
+        XCTAssertNil(fixture.model.displayedSession)
     }
 }

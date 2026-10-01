@@ -67,6 +67,112 @@ final class HUDLayoutControllerTests: XCTestCase {
         }
     }
 
+    func testSamePanelCrossOrientationAtTransparencyBoundary() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.hudLayoutMode = .horizontalLeft
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        controller.show()
+        let window = try XCTUnwrap(controller.window)
+        let container = try XCTUnwrap(window.contentView)
+        let hosting = try soleHosting(container)
+        for transparency in [86.0, 10, 79, 80, 100] {
+            fixture.model.previewTransparency(transparency)
+            try await Task.sleep(nanoseconds: 300_000_000)
+            for color in [HUDTitleColor.white, .black] {
+                fixture.model.hudTitleColor = color
+                for layout in [HUDLayoutMode.horizontalRight, .verticalTop, .verticalBottom, .horizontalLeft] {
+                    fixture.model.hudLayoutMode = layout
+                    try await Task.sleep(nanoseconds: 300_000_000)
+                    XCTAssertTrue(controller.window === window)
+                    XCTAssertTrue(window.contentView === container)
+                    XCTAssertTrue(try soleHosting(container) === hosting)
+                    XCTAssertEqual(window.frame.size, HUDBackgroundAppearance(Int(transparency)).size(layout))
+                    XCTAssertEqual(hosting.frame, container.bounds)
+                    XCTAssertEqual(fixture.model.hudIconFraction, transparency >= 80 ? 0 : 1)
+                    XCTAssertEqual(fixture.model.hudTitleColor, color)
+                    XCTAssertEqual(fixture.model.hudBackgroundTransparency, Int(transparency))
+                    try assertLightPositions(hosting, layout: layout)
+                }
+            }
+        }
+    }
+
+    func testQueuedAndInterleavedLayoutChangesKeepLatestPanel() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.hudLayoutMode = .horizontalLeft
+        fixture.model.previewTransparency(86)
+        fixture.model.isHUDPinned = true
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        controller.show()
+        let window = try XCTUnwrap(controller.window)
+        let container = try XCTUnwrap(window.contentView)
+        let hosting = try soleHosting(container)
+        for interleaved in [false, true] {
+            for index in 0..<20 {
+                fixture.model.hudLayoutMode = HUDLayoutMode.allCases[index % 4]
+                if interleaved { try await Task.sleep(nanoseconds: 20_000_000) }
+            }
+            // ABA: a queued older horizontalRight must not win over the latest one.
+            fixture.model.hudLayoutMode = .horizontalRight
+            fixture.model.hudLayoutMode = .horizontalLeft
+            fixture.model.hudLayoutMode = .horizontalRight
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertEqual(fixture.model.hudLayoutMode, .horizontalRight)
+            XCTAssertTrue(controller.window === window)
+            XCTAssertTrue(try soleHosting(container) === hosting)
+            XCTAssertEqual(window.frame.size, NSSize(width: 380, height: 40))
+            XCTAssertTrue(window.ignoresMouseEvents)
+            XCTAssertTrue(fixture.model.isHUDPinned)
+            try assertLightPositions(hosting, layout: .horizontalRight)
+        }
+        let frame = window.frame
+        let position = HUDPositionStore(defaults: fixture.defaults).loadResult(.horizontalRight)
+        fixture.model.hudLayoutMode = .horizontalRight
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(window.frame, frame)
+        XCTAssertEqual(HUDPositionStore(defaults: fixture.defaults).loadResult(.horizontalRight), position)
+    }
+
+    func testHideCancelsPendingRedrawAndHiddenLayoutDoesNotShowPanel() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.hudLayoutMode = .horizontalLeft
+        fixture.model.previewTransparency(86)
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        controller.show()
+        let window = try XCTUnwrap(controller.window)
+        fixture.model.hudLayoutMode = .horizontalRight
+        // The observer's switch is queued first; hide then runs before its redraw finalizer.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                controller.hide()
+                continuation.resume()
+            }
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertFalse(window.isVisible)
+        fixture.model.hudLayoutMode = .verticalBottom
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertEqual(window.frame.size, NSSize(width: 40, height: 380))
+        controller.show()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(controller.window === window)
+        XCTAssertTrue(window.isVisible)
+        try assertLightPositions(soleHosting(try XCTUnwrap(window.contentView)), layout: .verticalBottom)
+    }
+
     private func captureWindow(_ window: NSWindow, fixture: SessionIntegrationFixture) async throws -> Data {
         let file = fixture.root.appendingPathComponent(UUID().uuidString + ".png")
         let process = Process()

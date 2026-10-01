@@ -195,6 +195,54 @@ final class HUDTitleRenderingTests: XCTestCase {
         }
     }
 
+    func testSamePanelLayoutChangesDuringSessionTransitionsKeepCurrentTitle() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.autoEnableNewSessions = true
+        fixture.model.hudLayoutMode = .horizontalLeft
+        fixture.model.previewTransparency(86)
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        controller.show()
+        let window = try XCTUnwrap(controller.window)
+        let container = try XCTUnwrap(window.contentView)
+        let hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
+        for layout in [HUDLayoutMode.horizontalRight, .verticalTop, .verticalBottom, .horizontalLeft] {
+            try await fixture.hook("layout-a", event: .userPromptSubmit)
+            try fixture.model.setCustomTitle("123------", sessionID: "layout-a")
+            try await Task.sleep(nanoseconds: 300_000_000)
+            try await fixture.hook("layout-b", event: .userPromptSubmit)
+            try fixture.model.setCustomTitle("Q", sessionID: "layout-b")
+            try await fixture.hook("layout-b", event: .permissionRequest)
+            XCTAssertEqual(fixture.model.displayedSession?.id, "layout-b")
+            XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
+            // Use the live observer while the 0.20-second session transition is in flight.
+            fixture.model.hudLayoutMode = layout
+            try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+            XCTAssertTrue(controller.window === window)
+            XCTAssertTrue(window.contentView === container)
+            XCTAssertTrue(hosting.superview === container)
+            XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, "Q")
+            try await fixture.hook("layout-c", event: .permissionRequest)
+            try fixture.model.setCustomTitle("Traceflow", sessionID: "layout-c")
+            fixture.model.setIncluded(false, sessionID: "layout-b")
+            XCTAssertEqual(fixture.model.displayedSession?.id, "layout-c")
+            XCTAssertTrue(fixture.model.shouldAnimateDisplayChange, "布局切换后继续保留会话动画决策")
+            try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+            for id in ["layout-a", "layout-b", "layout-c"] {
+                fixture.model.setIncluded(false, sessionID: id)
+            }
+            XCTAssertNil(fixture.model.displayedSession)
+            try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+            for id in ["layout-a", "layout-b", "layout-c"] {
+                try await fixture.hook(id, event: .interrupt)
+                fixture.model.setIncluded(true, sessionID: id)
+            }
+        }
+    }
+
     private func assertProductionTitleMatchesFreshPanel(_ controller: HUDPanelController,
                                                         fixture: SessionIntegrationFixture) async throws {
         try await Task.sleep(nanoseconds: 300_000_000)

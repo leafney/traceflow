@@ -140,4 +140,3 @@ final class AutoEnableSessionIntegrationTests: XCTestCase {
         }
     }
 }
-

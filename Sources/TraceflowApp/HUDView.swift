@@ -179,67 +179,54 @@ struct StatusLightFrame: View {
     let glow: HUDGlowMode
     let visual: HUDLightVisualParameters
 
+    private var bodyRadius: CGFloat {
+        let base = HUDMetrics.lightDiameter / 2
+        return active ? base * CGFloat(visual.scale) : base
+    }
+
+    private var bodyOpacity: Double { active ? visual.bodyOpacity : 0.18 }
+    private var haloProgress: Double { active ? min(1, max(0, visual.glowIntensity)) : 0 }
+    private var haloWidth: CGFloat { (glow == .strong ? 7 : 4) * CGFloat(haloProgress) }
+
     var body: some View {
         ZStack {
-                if active {
-                    switch glow {
-                    case .standard:
-                        glowLayer(diameter: 40, blurRadius: 12,
-                                  peakOpacity: 0.28, intensity: visual.glowIntensity)
-                        glowLayer(diameter: 34, blurRadius: 6,
-                                  peakOpacity: 0.50, intensity: visual.glowIntensity)
-                    case .strong:
-                        enhancedGlow(intensity: visual.glowIntensity)
-                    }
-                }
-                Circle()
-                    .fill(kind.color.opacity(visual.bodyOpacity))
-                    .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
+            if active && haloProgress > 0 {
+                synchronizedHalo
             }
-            .scaleEffect(visual.scale)
-            .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
+            Circle()
+                .fill(kind.color.opacity(bodyOpacity))
+                .frame(width: bodyRadius * 2, height: bodyRadius * 2)
+        }
+        .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
         .accessibilityHidden(true)
     }
 
-    private func enhancedGlow(intensity: Double) -> some View {
-        // These opacities already include the approved 30% reduction.
-        ZStack {
-            Circle()
-                .fill(RadialGradient(
-                    stops: [
-                        .init(color: kind.color.opacity(0.56 * intensity), location: 0),
-                        .init(color: kind.color.opacity(0.455 * intensity), location: 0.28),
-                        .init(color: kind.color.opacity(0.175 * intensity), location: 0.6),
-                        .init(color: .clear, location: 1)
-                    ],
-                    center: .center,
-                    startRadius: 11,
-                    endRadius: 20
-                ))
-                .frame(width: 40, height: 40)
+    private var synchronizedHalo: some View {
+        let radius = bodyRadius
+        let width = haloWidth
+        let outer = radius + width
+        let inner = max(0, radius - 1)
+        let q = haloProgress
+        let strong = glow == .strong
+        // Strong peaks already include the approved 30% reduction.
+        let edge: Double = strong ? 0.63 : 0.35
+        let near: Double = strong ? 0.56 : 0.28
+        let far: Double = strong ? 0.175 : 0.12
 
-            Circle()
-                .stroke(kind.color.opacity(0.63 * intensity), lineWidth: 3)
-                .frame(width: 27, height: 27)
-                .blur(radius: 1.4)
-        }
-        .frame(width: 40, height: 40)
-    }
-
-    private func glowLayer(diameter: CGFloat, blurRadius: CGFloat, peakOpacity: Double, intensity: Double) -> some View {
-        Circle()
+        return Circle()
             .fill(RadialGradient(
                 stops: [
-                    .init(color: kind.color.opacity(peakOpacity * intensity), location: 0),
-                    .init(color: kind.color.opacity(peakOpacity * intensity * 0.58), location: 0.30),
-                    .init(color: .clear, location: 0.58)
+                    .init(color: .clear, location: 0),
+                    .init(color: .clear, location: inner / outer),
+                    .init(color: kind.color.opacity(edge * q), location: radius / outer),
+                    .init(color: kind.color.opacity(near * q), location: (radius + 0.28 * width) / outer),
+                    .init(color: kind.color.opacity(far * q), location: (radius + 0.60 * width) / outer),
+                    .init(color: .clear, location: 1)
                 ],
                 center: .center,
                 startRadius: 0,
-                endRadius: diameter / 2
+                endRadius: outer
             ))
-            .frame(width: diameter, height: diameter)
-            .blur(radius: blurRadius)
+            .frame(width: outer * 2, height: outer * 2)
     }
-
 }

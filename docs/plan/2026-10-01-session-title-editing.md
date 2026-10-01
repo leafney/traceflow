@@ -1,0 +1,174 @@
+Related discussion: [docs/discuss/2026-10-01-session-title-editing.md](../discuss/2026-10-01-session-title-editing.md)
+
+# 会话标题编辑
+
+日期：2026-10-01
+状态：用户已确认继续，实施中。
+
+## 问题
+
+会话标题目前来自首次输入摘要或 Codex 名称，用户无法为任务设置易识别的名称。两个会话区域都需提供改名入口，HUD 也需使用用户选择的标题。
+
+## 方案
+
+单击置顶区或会话区的会话标题，打开共用编辑弹窗。保存独立的本地自定义标题，两个列表即时更新；当前 HUD 展示该会话时即时更新标题。HUD 仍使用“项目名 · 标题”，仅替换标题部分。提供恢复默认动作，不修改 Codex 原始名称。
+
+## 用户故事
+
+1. 作为用户，我希望在置顶区点击标题编辑，便于为刚发现的任务命名。
+2. 作为用户，我希望在会话区使用相同编辑流程，便于管理已有会话。
+3. 作为用户，我希望两个区域的同一会话同步更新名称。
+4. 作为用户，我希望 HUD 保留项目名前缀，只修改任务标题。
+5. 作为用户，我希望重启后保留自定义标题。
+6. 作为用户，我希望同步和 Hook 不覆盖我的名称。
+7. 作为用户，我希望取消操作不修改原值。
+8. 作为用户，我希望恢复默认后重新采用最新摘要或 Codex 名称。
+9. 作为用户，我希望输入错误和保存失败明确显示，草稿不丢失。
+10. 作为用户，我希望改名不影响会话状态、启用选择、排序和轮播时长。
+
+## 交互与数据规则
+
+### 编辑弹窗
+
+- 两个列表的第一行标题变为原生 Button，使用 plain/borderless 样式保持现有文字外观。单击即可；可访问性名称为“编辑会话标题：当前标题”，提供“点击编辑标题”的 help。
+- 只让标题文字区域触发编辑；项目信息、日期、状态、行内启用和删除按钮保持现有行为。不要用整行 onTapGesture，也不要在 HUD 上增加点击编辑入口。
+- 空标题占位“未命名会话”也可点击；项目分组标题不提供此功能。
+- SettingsView 只保留一个编辑 sheet，以 sessionID 标识目标。两个入口调用相同打开逻辑，不复制两套状态。
+- 弹窗标题“编辑会话标题”；只读显示所属项目及会话 ID 前 8 位，便于识别目标。输入框只包含标题部分，不含项目名前缀或中间分隔符。
+- 打开时草稿优先取已保存的自定义标题，否则取当时的有效默认标题；没有真实默认标题时为空字符串，不把“未命名会话”占位当作真实值。
+- 提供“保存”“取消”“恢复默认标题”。Enter 在校验通过时保存；Escape 和关闭弹窗等价取消。打开后输入框获得焦点，但不要在中文输入法组合期间反复强制焦点或修改文本。
+- 输入草稿仅在弹窗本地保存；打字不直接更新会话、HUD 或磁盘。取消丢弃草稿，保存成功或恢复成功后关闭。
+- 有自定义值时可恢复默认；没有自定义值时恢复按钮禁用。恢复动作直接清除独立自定义字段，不保存草稿内容，无需额外确认。
+- 编辑期间后台 Hook、同步、轮播、最近窗口筛选继续正常工作；草稿不能随快照更新被重新初始化。
+- 目标移出置顶区或所属项目被折叠，不关闭弹窗；保存仍按 ID 查找整个本地集合。目标已删除/清空时禁用保存与恢复，显示“会话已不存在”，不得重新创建记录。
+- 会话数据健康不允许保存时，标题入口禁用；若弹窗打开后变为不可写，则禁用保存/恢复并提示“会话数据暂时无法保存，请先修复”。取消始终可用。
+
+### 校验
+
+- 去掉首尾 whitespacesAndNewlines 后校验；不能保存空字符串或纯空白。
+- 上限为 100 个 Swift Character，不能使用 UTF-8 字节数或 UTF-16 长度；中文、组合表情按用户可感知字符计数。
+- 去首尾空白后的有效值只能是单行：拒绝内部换行及制表等控制字符，显示明确错误。首尾换行可随 trim 去掉；内部换行不能悄悄只取第一行。
+- 保留内部普通空格、标点、Markdown 符号和表情，不使用 TitleBuilder.summary 的 Markdown 去除或 30 字截断。
+- 超长时显示“标题最多 100 个字符”，禁用保存，不静默截断输入；计数按规范化后的值展示。
+- UI 与模型调用共同使用同一验证规则；不能只限制 TextField 而让模型接受非法值。
+- 相同自定义值再次保存可视为无变化成功，不重复写盘；默认标题被编辑后按保存，即使文字等于当前默认值，也应保存为固定自定义值。
+
+### 标题优先级
+
+有效标题顺序：非空自定义值 → 有效 conversationSummary → 有效 codexThreadName。
+
+- 列表没有任何有效值时显示“未命名会话”。
+- HUD 将同一有效标题传给现有 TitleBuilder.displayTitle，与 projectName 拼接；项目名缺失等情况沿用其现有回退，不自行添加“未知项目 ·”前缀。
+- 恢复默认仅将自定义字段置 nil，立即从当时最新摘要或 Codex 名称回退。首条摘要仍按当前生命周期仅保存在内存；重启后默认标题可能来自 Codex 名称，这是既有行为。
+- 读取空白自定义字段时视为无值，避免破坏回退；无需为了修复历史文件新增迁移流程。
+
+## 具体实现指引
+
+本节供编码模型逐项执行。局部示意不是完整文件；保留未涉及的现有逻辑。
+
+| 模块／文件 | 修改要求 |
+| --- | --- |
+| `Sources/TraceflowCore/Models.swift` | PersistedSession 添加 `customTitle: String?`；构造器默认 nil；SessionSnapshot 添加共用的 `effectiveConversationTitle: String?` 及 `sessionListTitle: String`，displayTitle 使用前者 |
+| `Sources/TraceflowCore/SessionTitleEditor.swift`（新增） | 纯标题校验及规范化，小接口、可独立测试，100 字常量只定义一次 |
+| `Sources/TraceflowApp/AppModel.swift` | 新增按 ID 保存/恢复自定义标题的方法，错误返回给弹窗，先落盘再发布 |
+| `Sources/TraceflowApp/SettingsView.swift` | 两个标题 Button、共用编辑 sheet 入口；移除当前局部 sessionListTitle 重复计算 |
+| `Sources/TraceflowApp/SessionTitleEditorView.swift`（新增） | 原生弹窗、草稿、错误、计数、保存/取消/恢复、焦点与键盘行为 |
+| Core 与 App 测试 | 校验、标题回退、兼容加载、保存失败与入口保护的必要边界测试 |
+
+### 字段与兼容
+
+- PersistedSession 属性名和 JSON 键名均为 `customTitle`，采用现有合成 Codable；旧文件缺字段自动得到 nil。构造器添加 `customTitle: String? = nil`，现有调用继续兼容。
+- schema_version 保持 1；不保存 runtime state 或 conversationSummary，不写入另一个 UserDefaults 字典。
+- 不把 codexThreadName 改成用户值，不改项目路径或项目名，也不反向调用 Codex rename API。
+- 导入器的 existing 分支从原记录更新元数据，应自然保留 customTitle；新增 Hook 和同步项均为 nil。AppModel 合并也应保留 live.customTitle，避免后续代码变化导致覆盖。
+- SessionStateMachine 继续更新默认摘要和项目元数据，不清除 customTitle；customTitle 无需引入新的运行事件。
+- 删除/清空随记录删除自定义值；后续重新导入新记录不恢复已删除的名称，不维护额外历史表。
+
+### 共用标题与校验接口
+
+建议纯模块接口 `SessionTitleEditor.normalizedTitle(_ raw: String) throws -> String`，错误区分空白、内部控制字符、超长；返回值为 trim 后完整标题。
+
+SessionSnapshot 的两个标题属性集中执行非空回退。不要让 SettingsView/HUD 各自拼一套优先级，避免置顶区显示自定义值而 HUD 仍显示摘要。HUDView 当前读取 displayTitle 的调用可保持原样；横纵布局及可访问性随同一快照更新。
+
+### 模型保存必须避免假成功
+
+建议模型接口：`setCustomTitle(_ raw: String, sessionID: String) throws` 和 `resetCustomTitle(sessionID: String) throws`。保存流程在 MainActor 同步完成，不跨 await，以免草稿提交时覆盖刚到达的 Hook。
+
+1. 按 ID 重新查找当前 machine，目标不存在就返回业务错误；检查当前 sessionDataHealth。
+2. 校验 raw，复制当前最新 machine，仅改其 persisted.customTitle；恢复则改为 nil。
+3. 构造完整候选持久化数组：所有当前机器的记录，只替换目标记录，保持原有 rotationIndex 排序。
+4. 直接使用现有 sessionStore.save 保存候选数组。不能提前写入 machines、publishSessions 或更新 displayedSession。
+5. 保存失败时更新 sessionDataHealth = sessionStore.health，保留原内存标题与全部运行状态，返回可理解错误；弹窗保持打开、草稿保留。不得吞掉错误或显示“已保存”。
+6. 保存成功后更新 machines 中目标 machine，更新健康状态，publishSessions；若 displayedSession.id 等于目标 ID，则调用 updateDisplay(id) 更新文本并关闭切换动画；其他 HUD 项不更新。
+7. 不调用 refreshSessions、scheduler.updateSessions/reportStateChange，不重置当前周期、队列、轮播截止时间或指针。
+
+不得模仿 setIncluded 的“先修改内存、后尝试保存”的路径。不得直接调用当前 persistSessions() 保存旧 sessions 快照，而遗漏候选修改。修改前后的 state、conversationSummary、lastAppliedUptimeNanoseconds、completedAt 必须一致。
+
+lastUpdatedAt、lastActivityAt、settingsListSortAt、discoveredAt、rotationIndex、isIncludedInHUD 都不因改名变化。改名不是活动，不应让过期项重新进入置顶区或改变项目排序。
+
+### 弹窗并发及错误
+
+- sheet 的目标 sessionID 与初始草稿分开；读取最新 session 只用于检查存在/健康/恢复能力，不覆盖草稿。
+- 保存时只传 raw + sessionID，模型自行取得最新其他字段。禁止将打开弹窗时的整个 SessionSnapshot 写回模型。
+- 同步可能更新默认标题，但保存自定义值之后其优先级更高；恢复默认时使用最新默认来源，不使用打开时缓存的旧值。
+- 错误显示在输入框或动作附近；保留取消按钮。失败后因为数据保护无法写入，用户可取消并通过现有诊断重试保存，之后重新编辑，不增加弹窗专用修复流程。
+- 不新增包含标题正文的专用改名日志；原有状态日志标题字段继续通过现有转义格式化器输出。
+
+## 实施阶段
+
+1. **核心数据与规则**：字段兼容、共用有效标题、独立校验，补充必要核心测试。
+2. **模型保存与联动**：按 ID 事务式保存/恢复、错误反馈、仅更新文本，补充应用业务测试。
+3. **两区域编辑界面**：原生标题按钮和共用 sheet、草稿与键盘交互。
+4. **集成验收**：构建及完整测试，深浅色、两个入口、HUD 横纵、重启与失败路径验收。
+
+当前只规划，待用户明确批准后实施。实施沿用用户流程：每个主要文件改动后等待确认；若用户另行授权持续实施，以最新授权为准。提交时使用英文 type/scope 和纯简体中文 description，PRD 路径放提交正文。
+
+## 测试决策与验收
+
+不采用 TDD；只写有业务边界的测试。不要测试 SwiftUI 私有层级，不增加 public 测试专用入口。采用当前已有独立临时目录和 UserDefaults suite 的应用测试方式，避免真实用户文件。允许完善测试夹具隔离注入，但不为此重构整个 AppModel。
+
+### 自动测试最低要求
+
+1. 校验：空/纯空白拒绝；trim 正常；100 字通过、101 字拒绝；组合表情按 Character 计；内部换行/制表拒绝；Markdown 和内部空格原样保留，无 30 字截断。
+2. 标题：自定义值优先于两种默认来源；恢复后摘要优先于 Codex 名称；空白来源正常回退；HUD 保留项目名；列表没有默认值显示占位。
+3. 存储：自定义值可 round-trip；旧 schema 1 缺字段可加载且 nil；恢复后再加载为 nil；不存在的自定义值不新增默认标题。
+4. 合并/事件：已自定义项收到同步及 Hook 后保留名称，默认 Codex 名称和摘要仍可更新；删除后重新导入无旧名称。
+5. 模型：保存和恢复刷新两个列表及当前 displayedSession；非当前会话改名不改变 HUD 当前 ID/周期；启用值、所有时间、状态和事件顺序值保持不变；取消不调用模型。
+6. 失败：用独立目录可控阻止文件写入，断言原机器标题、磁盘旧内容及 HUD 保持不变，健康状态和错误明确。不存在 ID、不可写健康、非法值不产生新记录。
+7. 编辑期间发生 Hook/同步时，保存只更改 customTitle，不把最新运行元数据覆盖回旧值；恢复采用最新默认名。
+
+当前 AppModel 把存储固定为 TraceflowPaths.sessions；应用测试优先使用已有环境隔离夹具，不暴露 private 方法。测试需可重复且记录真正处理完成的事件，不仅检查会话已是 running。
+
+### 手动验收
+
+- 置顶区与会话区均可单击标题；输入框只有标题部分；标题行启用/删除无误触。
+- 保存后两个区域一致；当前 HUD 横纵均刷新，自定义长标题只在展示中截断，不截断存储。
+- 取消/Escape/关闭不改值；恢复默认即时回退。
+- 中文输入法、组合表情、空白、超长、粘贴多行均符合规则；Enter 不绕过校验。
+- 打开弹窗后新活动不覆盖草稿；会话移出最近窗口仍可保存；目标消失给出提示。
+- 写入失败时不关闭弹窗、不假成功；数据保护恢复后可重新编辑。
+- 保存后退出进程重启，自定义值仍在；未启用或待机会话改名不强行进入 HUD。
+- 最小 680 点窗口、深浅色、键盘焦点与可访问性可用。
+
+执行 `swift build`、相关测试、完整 `swift test`、`git diff --check`。分别报告自动测试与真实交互验证结果；无法验证的项明确列出，不以模拟结果冒充实际重启或鼠标操作。
+
+## 范围外
+
+- 修改 Codex 会话原名、项目名、HUD 布局或调度。
+- 为待机会话伪造状态或自动启用。
+- 批量改名、历史名称、跨设备同步、HUD 内编辑。
+- 持久化默认 prompt 摘要、数据库迁移、新增外部服务。
+
+## 补充说明
+
+新增自定义字段是有意允许的本地数据扩展，不受上一功能“不改持久化格式”的范围限制。保留 schema 1 的向后兼容读取。保存失败处理和最新状态保护必须完成，不能只实现 TextField 与内存文本替换。
+
+
+## 存储决策确认
+
+用户已确认继续采用现有 JSON 保存会话及 customTitle，UserDefaults 保存应用配置；不引入 SQLite，不迁移日志或其他设置。
+
+
+## 连续实施授权
+
+用户明确批准全部 PRD，要求每阶段完成对应验证并提交，随后立即继续下一阶段。此授权覆盖逐主要文件等待确认的旧流程。

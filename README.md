@@ -37,8 +37,13 @@ HUD 可拖动到任意显示器；位置、会话列表与是否参与轮播会�
 
 ```bash
 swift test
+swift test --filter AutoEnableSessionIntegrationTests
 scripts/e2e-local.sh
 scripts/poc/run-cli-poc.sh
 ```
+
+会话自动启用的集成测试使用独立临时目录、独立偏好设置和模拟会话服务，通过真实发现入口与本地套接字验证；不会修改个人会话或 Hooks 配置。测试需要 macOS 桌面环境及系统 Python，结束后恢复环境变量并清理临时数据。
+
+“自动启用新会话”只控制后续自动发现或 Hook 新增项，手动同步历史项仍默认关闭。启用的待机会话不进入 HUD 轮播，收到活动事件后按现有调度展示。
 
 详细规范见 [`docs/plan/2026-09-21-traceflow-macos-mvp.md`](docs/plan/2026-09-21-traceflow-macos-mvp.md)。

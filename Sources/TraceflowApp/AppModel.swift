@@ -551,6 +551,8 @@ final class AppModel: ObservableObject {
 
     private func mergeCodexThreads(_ threads: [CodexThreadSummary], isManual: Bool) {
         let current = machines.values.map(\.snapshot.persisted)
+        // Read the preference when merging, not when the asynchronous request starts.
+        // Manual history sync never opts new records into the HUD.
         let includeNewSessionsInHUD = !isManual && autoEnableNewSessions
         let result = CodexThreadImporter.merge(
             threads,
@@ -568,6 +570,8 @@ final class AppModel: ObservableObject {
                 machine.updatePersistedMetadata(merged)
                 mergedMachines[persisted.sessionID] = machine
             } else {
+                // Inclusion grants eligibility; discovery cannot infer a live state.
+                // Idle records remain hidden until an accepted Hook reports activity.
                 mergedMachines[persisted.sessionID] = SessionStateMachine(
                     snapshot: SessionSnapshot(persisted: persisted, state: .idle)
                 )

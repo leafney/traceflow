@@ -94,8 +94,8 @@ struct SettingsView: View {
                         .controlSize(.small)
                         .fixedSize()
                         .accessibilityLabel("自动启用新会话")
-                        .accessibilityHint("仅自动启用此后新发现的会话，手动同步历史会话除外")
-                        .help("仅自动启用此后新发现的会话，手动同步历史会话除外")
+                        .accessibilityHint("仅自动启用此后新发现的会话；待机时不展示，活动后参与 HUD；手动同步历史会话除外")
+                        .help("仅自动启用此后新发现的会话；待机时不展示，活动后参与 HUD；手动同步历史会话除外")
                 }
             }
             Section("会话区") {

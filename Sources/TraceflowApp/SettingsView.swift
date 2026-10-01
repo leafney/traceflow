@@ -72,7 +72,7 @@ struct SettingsView: View {
                 if let message = model.hooksActionMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
                 sessionDataRecoveryActions
             }
-            Section("置顶区") {
+            Section {
                 if model.recentSessions.isEmpty {
                     Text("最近 10 分钟没有动态").foregroundStyle(.secondary)
                 }
@@ -84,6 +84,18 @@ struct SettingsView: View {
                 }
                 ForEach(model.recentSessions) { session in
                     recentSessionRow(session)
+                }
+            } header: {
+                HStack {
+                    Text("置顶区")
+                    Spacer(minLength: 8)
+                    Toggle("自动启用新会话", isOn: $model.autoEnableNewSessions)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .fixedSize()
+                        .accessibilityLabel("自动启用新会话")
+                        .accessibilityHint("仅自动启用此后新发现的会话，手动同步历史会话除外")
+                        .help("仅自动启用此后新发现的会话，手动同步历史会话除外")
                 }
             }
             Section("会话区") {

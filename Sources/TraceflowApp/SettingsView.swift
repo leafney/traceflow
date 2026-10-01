@@ -230,15 +230,13 @@ struct SettingsView: View {
         let title = session.sessionListTitle
         let project = session.persisted.projectName ?? "未知项目"
         HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                editableSessionTitle(session)
+            editableSessionArea(session) {
                 Text("\(project) · \(session.persisted.lastActivityAt?.formatted() ?? "未知时间") · \(String(session.id.prefix(8)))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .help(session.persisted.projectPath ?? project)
             }
-            Spacer(minLength: 8)
             Text(runtimeStateTitle(session.state)).foregroundStyle(.secondary)
             Toggle("参与 HUD", isOn: Binding(
                 get: { session.persisted.isIncludedInHUD },
@@ -263,14 +261,12 @@ struct SettingsView: View {
             .labelsHidden()
             .disabled(!model.sessionDataHealth.allowsSaving)
             .accessibilityLabel("\(title) 参与 HUD")
-            VStack(alignment: .leading, spacing: 2) {
-                editableSessionTitle(session)
+            editableSessionArea(session) {
                 Text("\(String(session.id.prefix(8))) · \(session.persisted.lastUpdatedAt.formatted())")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer(minLength: 8)
             Text(runtimeStateTitle(session.state)).foregroundStyle(.secondary)
             Button(role: .destructive) {
                 confirmation = DestructiveConfirmation(kind: .deleteSession(id: session.id, title: title))
@@ -283,9 +279,17 @@ struct SettingsView: View {
         }
     }
 
-    private func editableSessionTitle(_ session: SessionSnapshot) -> some View {
+    private func editableSessionArea<Detail: View>(
+        _ session: SessionSnapshot,
+        @ViewBuilder detail: () -> Detail
+    ) -> some View {
         Button { titleEditingSession = session } label: {
-            Text(session.sessionListTitle).lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.sessionListTitle).lineLimit(1)
+                detail()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("点击编辑标题：\(session.sessionListTitle)")

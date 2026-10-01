@@ -37,19 +37,7 @@ struct HUDView: View {
                     icon.opacity(model.hudIconFraction)
                         .frame(width: HUDMetrics.iconLength * model.hudIconFraction, height: HUDMetrics.shortAxis).clipped()
                 case .title:
-                    ZStack {
-                        title.frame(width: HUDMetrics.titleTextLength, alignment: .leading)
-                            .compositingGroup()
-                            .id(model.displayedSession?.id ?? "placeholder")
-                            .transition(titleTransition(vertical: false))
-                    }
-                    .frame(width: HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2, height: HUDMetrics.shortAxis)
-                    .clipped()
-                    .transaction { $0.animation = titleAnimation }
-                    // Crossing the placeholder boundary must discard the entire old
-                    // transition container, including any retained outgoing title.
-                    .id(model.displayedSession != nil)
-                    .transition(.identity)
+                    titleRegion(vertical: false)
                 }
             }
         }
@@ -66,18 +54,7 @@ struct HUDView: View {
                     icon.opacity(model.hudIconFraction)
                         .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
                 case .title:
-                    ZStack {
-                        VerticalMixedTitleView(title: displayedTitle, color: model.hudTitleColor)
-                            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
-                            .compositingGroup()
-                            .id(model.displayedSession?.id ?? "placeholder")
-                            .transition(titleTransition(vertical: true))
-                    }
-                    .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2)
-                    .clipped()
-                    .transaction { $0.animation = titleAnimation }
-                    .id(model.displayedSession != nil)
-                    .transition(.identity)
+                    titleRegion(vertical: true)
                 }
             }
         }
@@ -88,12 +65,47 @@ struct HUDView: View {
             .font(.system(size: 17, weight: .semibold))
     }
 
-    private var title: some View {
-        Text(displayedTitle)
-            .font(.system(size: 13, weight: .medium, design: .rounded))
-            .foregroundStyle(model.hudTitleColor == .white ? Color.white : Color.black)
-            .lineLimit(1)
-            .truncationMode(.tail)
+    @ViewBuilder
+    private func titleRegion(vertical: Bool) -> some View {
+        Group {
+            if let session = model.displayedSession {
+                ZStack {
+                    // Snapshot the text so outgoing content never reads a new
+                    // placeholder from the model during a transition.
+                    titleContent(session.sessionListTitle, vertical: vertical)
+                        .compositingGroup()
+                        .id(session.id)
+                        .transition(titleTransition(vertical: vertical))
+                }
+                .transaction { $0.animation = titleAnimation }
+                .transition(.identity)
+            } else {
+                // The default name is static and cannot become an outgoing session.
+                titleContent("Traceflow", vertical: vertical)
+                    .transition(.identity)
+            }
+        }
+        .frame(width: vertical ? HUDMetrics.shortAxis : HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2,
+               height: vertical ? HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2 : HUDMetrics.shortAxis)
+        .clipped()
+        // Only suppress cross-branch animation. The session container above
+        // restores its own animation; disablesAnimations would suppress it too.
+        .transaction { $0.animation = nil }
+    }
+
+    @ViewBuilder
+    private func titleContent(_ text: String, vertical: Bool) -> some View {
+        if vertical {
+            VerticalMixedTitleView(title: text, color: model.hudTitleColor)
+                .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
+        } else {
+            Text(text)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(model.hudTitleColor == .white ? Color.white : Color.black)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: HUDMetrics.titleTextLength, alignment: .leading)
+        }
     }
 
     private var accessibilityDescription: String {

@@ -461,3 +461,9 @@ controller.show()
 - 普通测试窗口改为生产HUDPanelController；不替换受测HostingView或背景。
 - `swift test --filter HUDTitleRenderingTests`：2项通过；`git diff --check`通过。
 - 保留完整动画的基线在原生视图cacheDisplay中未复现持续默认字形残留。该结果不能证明WindowServer画面无重影，也不能证明动画中间帧存在。
+
+### 阶段一
+
+- 提取横竖共用titleRegion/titleContent。默认名称不再进入会话动画容器；退出文字使用会话字符串快照。
+- 仅抑制默认/会话跨分支过渡，内层恢复会话动画；原插入、退出方向及时间不变。
+- 标题定向与核心过渡测试共5项通过，swift build与git diff --check通过。生产浮窗原生视图稳定帧无残留；屏幕中间帧另行验证。

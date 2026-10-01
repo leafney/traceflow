@@ -29,18 +29,28 @@ final class HUDLightAnimationTests: XCTestCase {
         XCTAssertEqual(low.scale, 0.9, accuracy: 0.000_001)
         XCTAssertEqual(middle.scale, 1.0, accuracy: 0.000_001)
         XCTAssertEqual(high.scale, 1.1, accuracy: 0.000_001)
-        XCTAssertEqual(low.bodyOpacity, 0.18, accuracy: 0.000_001)
+        XCTAssertEqual(low.bodyOpacity, 0.55, accuracy: 0.000_001)
+        XCTAssertEqual(middle.bodyOpacity, 0.775, accuracy: 0.000_001)
         XCTAssertEqual(high.bodyOpacity, 1, accuracy: 0.000_001)
         XCTAssertEqual(low.glowIntensity, 0, accuracy: 0.000_001)
+        XCTAssertEqual(middle.glowIntensity, 0.5, accuracy: 0.000_001)
         XCTAssertEqual(high.glowIntensity, 1, accuracy: 0.000_001)
     }
 
-    func testCompletedKeepsBrightnessAndGlowAtAllPhases() {
-        let visual = HUDLightAnimation.parameters(for: .completed, isActive: true, referenceTime: 0, reduceMotion: false)
-
-        XCTAssertEqual(visual.bodyOpacity, 1)
-        XCTAssertEqual(visual.glowIntensity, 1)
-        XCTAssertEqual(visual.scale, 0.9, accuracy: 0.000_001)
+    func testCompletedBodyAndGlowBreatheTogether() {
+        let samples: [(time: Double, body: Double, glow: Double, scale: Double)] = [
+            (0, 0.55, 0, 0.9),
+            (0.7, 0.775, 0.5, 1),
+            (1.4, 1, 1, 1.1),
+            (2.1, 0.775, 0.5, 1)
+        ]
+        for sample in samples {
+            let visual = HUDLightAnimation.parameters(for: .completed, isActive: true, referenceTime: sample.time, reduceMotion: false)
+            XCTAssertEqual(visual.bodyOpacity, sample.body, accuracy: 0.000_001)
+            XCTAssertEqual(visual.glowIntensity, sample.glow, accuracy: 0.000_001)
+            XCTAssertEqual(visual.scale, sample.scale, accuracy: 0.000_001)
+            XCTAssertFalse(visual.isTimelinePaused)
+        }
     }
 
     func testInactiveAndReduceMotionVisualsAreStatic() {

@@ -5,13 +5,14 @@ public enum HookSessionFactory {
         sessionID: String,
         cwd: String?,
         now: Date,
-        rotationIndex: Int
+        rotationIndex: Int,
+        isIncludedInHUD: Bool = false
     ) -> PersistedSession {
         PersistedSession(
             sessionID: sessionID,
             projectPath: cwd,
             projectName: TitleBuilder.projectName(from: cwd),
-            isIncludedInHUD: false,
+            isIncludedInHUD: isIncludedInHUD,
             discoveredAt: now,
             lastUpdatedAt: now,
             lastActivityAt: now,

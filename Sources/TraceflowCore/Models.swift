@@ -97,6 +97,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
     public var projectPath: String?
     public var projectName: String?
     public var codexThreadName: String?
+    public var customTitle: String?
     public var isIncludedInHUD: Bool
     public let discoveredAt: Date
     public var lastUpdatedAt: Date
@@ -110,6 +111,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
         projectPath: String? = nil,
         projectName: String? = nil,
         codexThreadName: String? = nil,
+        customTitle: String? = nil,
         isIncludedInHUD: Bool = false,
         discoveredAt: Date,
         lastUpdatedAt: Date,
@@ -122,6 +124,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
         self.projectPath = projectPath
         self.projectName = projectName
         self.codexThreadName = codexThreadName
+        self.customTitle = customTitle
         self.isIncludedInHUD = isIncludedInHUD
         self.discoveredAt = discoveredAt
         self.lastUpdatedAt = lastUpdatedAt
@@ -157,10 +160,29 @@ public struct SessionSnapshot: Sendable, Equatable, Identifiable {
         self.completedAt = completedAt
     }
 
+    public var effectiveConversationTitle: String? {
+        if let customTitle = persisted.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !customTitle.isEmpty { return customTitle }
+        return defaultConversationTitle
+    }
+
+    public var defaultConversationTitle: String? {
+        for candidate in [conversationSummary, persisted.codexThreadName] {
+            guard let candidate else { continue }
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
+
+    public var sessionListTitle: String {
+        effectiveConversationTitle ?? "未命名会话"
+    }
+
     public var displayTitle: String {
         TitleBuilder.displayTitle(
             projectName: persisted.projectName,
-            conversationSummary: conversationSummary ?? persisted.codexThreadName
+            conversationSummary: effectiveConversationTitle
         )
     }
 }

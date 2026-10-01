@@ -4,6 +4,7 @@ import TraceflowCore
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @State private var titleEditingSession: SessionSnapshot?
     @State private var confirmation: DestructiveConfirmation?
 
     var body: some View {
@@ -72,7 +73,7 @@ struct SettingsView: View {
                 if let message = model.hooksActionMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
                 sessionDataRecoveryActions
             }
-            Section("置顶区") {
+            Section {
                 if model.recentSessions.isEmpty {
                     Text("最近 10 分钟没有动态").foregroundStyle(.secondary)
                 }
@@ -84,6 +85,18 @@ struct SettingsView: View {
                 }
                 ForEach(model.recentSessions) { session in
                     recentSessionRow(session)
+                }
+            } header: {
+                HStack {
+                    Text("置顶区")
+                    Spacer(minLength: 8)
+                    Toggle("自动启用新会话", isOn: $model.autoEnableNewSessions)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .fixedSize()
+                        .accessibilityLabel("自动启用新会话")
+                        .accessibilityHint("仅自动启用此后新发现的会话；待机时不展示，活动后参与 HUD；手动同步历史会话除外")
+                        .help("仅自动启用此后新发现的会话；待机时不展示，活动后参与 HUD；手动同步历史会话除外")
                 }
             }
             Section("会话区") {
@@ -118,6 +131,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped).padding().frame(minWidth: 680, minHeight: 600)
+        .sheet(item: $titleEditingSession) { session in
+            SessionTitleEditorView(model: model, session: session)
+        }
         .alert(item: $confirmation) { item in
             switch item.kind {
             case let .deleteSession(id, _):
@@ -211,18 +227,16 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func recentSessionRow(_ session: SessionSnapshot) -> some View {
-        let title = sessionListTitle(session)
+        let title = session.sessionListTitle
         let project = session.persisted.projectName ?? "未知项目"
         HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).lineLimit(1).help(title)
+            editableSessionArea(session) {
                 Text("\(project) · \(session.persisted.lastActivityAt?.formatted() ?? "未知时间") · \(String(session.id.prefix(8)))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .help(session.persisted.projectPath ?? project)
             }
-            Spacer(minLength: 8)
             Text(runtimeStateTitle(session.state)).foregroundStyle(.secondary)
             Toggle("参与 HUD", isOn: Binding(
                 get: { session.persisted.isIncludedInHUD },
@@ -237,7 +251,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func sessionRow(_ session: SessionSnapshot) -> some View {
-        let title = sessionListTitle(session)
+        let title = session.sessionListTitle
         HStack(spacing: 10) {
             Toggle("参与 HUD", isOn: Binding(
                 get: { session.persisted.isIncludedInHUD },
@@ -247,14 +261,12 @@ struct SettingsView: View {
             .labelsHidden()
             .disabled(!model.sessionDataHealth.allowsSaving)
             .accessibilityLabel("\(title) 参与 HUD")
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).lineLimit(1).help(title)
+            editableSessionArea(session) {
                 Text("\(String(session.id.prefix(8))) · \(session.persisted.lastUpdatedAt.formatted())")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer(minLength: 8)
             Text(runtimeStateTitle(session.state)).foregroundStyle(.secondary)
             Button(role: .destructive) {
                 confirmation = DestructiveConfirmation(kind: .deleteSession(id: session.id, title: title))
@@ -267,10 +279,22 @@ struct SettingsView: View {
         }
     }
 
-    private func sessionListTitle(_ session: SessionSnapshot) -> String {
-        let value = session.conversationSummary ?? session.persisted.codexThreadName
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? "未命名会话" : trimmed
+    private func editableSessionArea<Detail: View>(
+        _ session: SessionSnapshot,
+        @ViewBuilder detail: () -> Detail
+    ) -> some View {
+        Button { titleEditingSession = session } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.sessionListTitle).lineLimit(1)
+                detail()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("点击编辑标题：\(session.sessionListTitle)")
+        .accessibilityLabel("编辑会话标题：\(session.sessionListTitle)")
+        .disabled(!model.sessionDataHealth.allowsSaving)
     }
 
     private func runtimeStateTitle(_ state: SessionRuntimeState) -> String {

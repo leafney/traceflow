@@ -22,6 +22,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var sessionDataHealth: SessionDataHealth = .healthy
     @Published private(set) var isRebuildingSessions = false
     @Published var sessionSyncMessage: String?
+    @Published var autoEnableNewSessions: Bool {
+        didSet { defaults.set(autoEnableNewSessions, forKey: "autoEnableNewSessions") }
+    }
     @Published var isHUDVisible: Bool { didSet { defaults.set(isHUDVisible, forKey: "hudVisible") } }
     @Published var displayDuration: Double {
         didSet {
@@ -86,6 +89,7 @@ final class AppModel: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        autoEnableNewSessions = defaults.bool(forKey: "autoEnableNewSessions")
         hudPreferences = HUDPreferences(defaults: defaults)
         defaults.register(defaults: ["hudVisible": true, "displayDuration": 5.0])
         isHUDVisible = defaults.bool(forKey: "hudVisible")
@@ -185,6 +189,37 @@ final class AppModel: ObservableObject {
         machine.setIncludedInHUD(included)
         machines[sessionID] = machine
         refreshSessions(); persistSessions()
+    }
+
+    func setCustomTitle(_ raw: String, sessionID: String) throws {
+        try saveCustomTitle(SessionTitleEditor.normalizedTitle(raw), sessionID: sessionID)
+    }
+
+    func resetCustomTitle(sessionID: String) throws {
+        try saveCustomTitle(nil, sessionID: sessionID)
+    }
+
+    private func saveCustomTitle(_ title: String?, sessionID: String) throws {
+        guard var machine = machines[sessionID] else { throw SessionTitleSaveError.missingSession }
+        guard sessionDataHealth.allowsSaving else { throw SessionTitleSaveError.protectedData }
+        guard machine.snapshot.persisted.customTitle != title else { return }
+        var persisted = machine.snapshot.persisted
+        persisted.customTitle = title
+        machine.updatePersistedMetadata(persisted)
+        let candidate = machines.values.map { current in
+            current.snapshot.id == sessionID ? persisted : current.snapshot.persisted
+        }.sorted { $0.rotationIndex < $1.rotationIndex }
+        do {
+            try sessionStore.save(candidate)
+        } catch {
+            sessionDataHealth = sessionStore.health
+            throw SessionTitleSaveError.writeFailed
+        }
+        sessionDataHealth = sessionStore.health
+        machines[sessionID] = machine
+        publishSessions()
+        // A rename updates text only; never reset the scheduler's current cycle.
+        if displayedSession?.id == sessionID { updateDisplay(sessionID) }
     }
 
     func setProjectIncluded(_ included: Bool, projectKey: String) {
@@ -471,7 +506,8 @@ final class AppModel: ObservableObject {
             sessionID: envelope.payload.sessionID,
             cwd: envelope.payload.cwd,
             now: now,
-            rotationIndex: nextRotationIndex
+            rotationIndex: nextRotationIndex,
+            isIncludedInHUD: autoEnableNewSessions
         )
         return SessionStateMachine(snapshot: SessionSnapshot(persisted: persisted))
     }
@@ -546,10 +582,14 @@ final class AppModel: ObservableObject {
 
     private func mergeCodexThreads(_ threads: [CodexThreadSummary], isManual: Bool) {
         let current = machines.values.map(\.snapshot.persisted)
+        // Read the preference when merging, not when the asynchronous request starts.
+        // Manual history sync never opts new records into the HUD.
+        let includeNewSessionsInHUD = !isManual && autoEnableNewSessions
         let result = CodexThreadImporter.merge(
             threads,
             into: current,
-            nextRotationIndex: nextRotationIndex
+            nextRotationIndex: nextRotationIndex,
+            includeNewSessionsInHUD: includeNewSessionsInHUD
         )
         var mergedMachines: [String: SessionStateMachine] = [:]
         for persisted in result.sessions {
@@ -557,10 +597,13 @@ final class AppModel: ObservableObject {
                 var merged = persisted
                 let live = machine.snapshot.persisted
                 merged.isIncludedInHUD = live.isIncludedInHUD
+                merged.customTitle = live.customTitle
                 merged.lastActivityAt = max(live.lastActivityAt ?? merged.lastActivityAt ?? .distantPast, merged.lastActivityAt ?? .distantPast)
                 machine.updatePersistedMetadata(merged)
                 mergedMachines[persisted.sessionID] = machine
             } else {
+                // Inclusion grants eligibility; discovery cannot infer a live state.
+                // Idle records remain hidden until an accepted Hook reports activity.
                 mergedMachines[persisted.sessionID] = SessionStateMachine(
                     snapshot: SessionSnapshot(persisted: persisted, state: .idle)
                 )
@@ -625,3 +668,17 @@ final class AppModel: ObservableObject {
 }
 
 extension Notification.Name { static let traceflowResetHUDPosition = Notification.Name("TraceflowResetHUDPosition") }
+
+enum SessionTitleSaveError: LocalizedError, Equatable {
+    case missingSession
+    case protectedData
+    case writeFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .missingSession: return "会话已不存在"
+        case .protectedData: return "会话数据暂时无法保存，请先修复"
+        case .writeFailed: return "标题保存失败，原标题未修改。请先检查会话数据保存状态。"
+        }
+    }
+}

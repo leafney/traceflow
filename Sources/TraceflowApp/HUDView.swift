@@ -130,7 +130,7 @@ struct HUDView: View {
 
 }
 
-private enum StatusLightKind {
+enum StatusLightKind {
     case attention
     case running
     case completed
@@ -166,14 +166,31 @@ private struct StatusLight: View {
                 referenceTime: timeline.date.timeIntervalSinceReferenceDate,
                 reduceMotion: reduceMotion
             )
-            let parameters = GlowParameters(mode: glow)
+            StatusLightFrame(kind: kind, active: active, glow: glow, visual: visual)
+        }
+        .accessibilityHidden(true)
+    }
+}
 
-            ZStack {
+/// A single sampled animation frame, shared by the live timeline and native rendering checks.
+struct StatusLightFrame: View {
+    let kind: StatusLightKind
+    let active: Bool
+    let glow: HUDGlowMode
+    let visual: HUDLightVisualParameters
+
+    var body: some View {
+        ZStack {
                 if active {
-                    glowLayer(diameter: 40, blurRadius: parameters.outerBlur,
-                              peakOpacity: parameters.outerOpacity, intensity: visual.glowIntensity)
-                    glowLayer(diameter: 34, blurRadius: parameters.innerBlur,
-                              peakOpacity: parameters.innerOpacity, intensity: visual.glowIntensity)
+                    switch glow {
+                    case .standard:
+                        glowLayer(diameter: 40, blurRadius: 12,
+                                  peakOpacity: 0.28, intensity: visual.glowIntensity)
+                        glowLayer(diameter: 34, blurRadius: 6,
+                                  peakOpacity: 0.50, intensity: visual.glowIntensity)
+                    case .strong:
+                        enhancedGlow(intensity: visual.glowIntensity)
+                    }
                 }
                 Circle()
                     .fill(kind.color.opacity(visual.bodyOpacity))
@@ -181,8 +198,32 @@ private struct StatusLight: View {
             }
             .scaleEffect(visual.scale)
             .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
-        }
         .accessibilityHidden(true)
+    }
+
+    private func enhancedGlow(intensity: Double) -> some View {
+        // These opacities already include the approved 30% reduction.
+        ZStack {
+            Circle()
+                .fill(RadialGradient(
+                    stops: [
+                        .init(color: kind.color.opacity(0.56 * intensity), location: 0),
+                        .init(color: kind.color.opacity(0.455 * intensity), location: 0.28),
+                        .init(color: kind.color.opacity(0.175 * intensity), location: 0.6),
+                        .init(color: .clear, location: 1)
+                    ],
+                    center: .center,
+                    startRadius: 11,
+                    endRadius: 20
+                ))
+                .frame(width: 40, height: 40)
+
+            Circle()
+                .stroke(kind.color.opacity(0.63 * intensity), lineWidth: 3)
+                .frame(width: 27, height: 27)
+                .blur(radius: 1.4)
+        }
+        .frame(width: 40, height: 40)
     }
 
     private func glowLayer(diameter: CGFloat, blurRadius: CGFloat, peakOpacity: Double, intensity: Double) -> some View {
@@ -201,26 +242,4 @@ private struct StatusLight: View {
             .blur(radius: blurRadius)
     }
 
-}
-
-private struct GlowParameters {
-    let innerBlur: CGFloat
-    let innerOpacity: Double
-    let outerBlur: CGFloat
-    let outerOpacity: Double
-
-    init(mode: HUDGlowMode) {
-        switch mode {
-        case .standard:
-            innerBlur = 6
-            innerOpacity = 0.50
-            outerBlur = 12
-            outerOpacity = 0.28
-        case .strong:
-            innerBlur = 9
-            innerOpacity = 0.70
-            outerBlur = 18
-            outerOpacity = 0.45
-        }
-    }
 }

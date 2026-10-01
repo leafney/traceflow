@@ -28,6 +28,7 @@ final class SessionStoreTests: XCTestCase {
         let session = try XCTUnwrap(SessionStore(url: url).load().first)
 
         XCTAssertNil(session.codexThreadName)
+        XCTAssertNil(session.customTitle)
         XCTAssertNil(session.settingsListSortAt)
         XCTAssertNil(session.lastActivityAt)
         XCTAssertEqual(session.effectiveSettingsListSortAt, session.lastUpdatedAt)
@@ -38,6 +39,24 @@ final class SessionStoreTests: XCTestCase {
         let date = Date(timeIntervalSince1970: 123)
         let session = PersistedSession(sessionID: "s1", discoveredAt: date, lastUpdatedAt: date, rotationIndex: 0)
         XCTAssertFalse(session.isIncludedInHUD)
+    }
+
+    func testCustomTitleRoundTripsAndCanBeClearedWithoutChangingDefaultName() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SessionStore(url: directory.appendingPathComponent("sessions.json"))
+        let date = Date(timeIntervalSince1970: 123)
+        var session = PersistedSession(
+            sessionID: "session", codexThreadName: "原始名称", customTitle: "自定义标题",
+            discoveredAt: date, lastUpdatedAt: date, rotationIndex: 0
+        )
+        try store.save([session])
+        XCTAssertEqual(try store.load(), [session])
+        session.customTitle = nil
+        try store.save([session])
+        let restored = try XCTUnwrap(store.load().first)
+        XCTAssertNil(restored.customTitle)
+        XCTAssertEqual(restored.codexThreadName, "原始名称")
     }
 
     func testCorruptFileIsNotOverwrittenOnLoad() throws {

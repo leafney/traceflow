@@ -153,6 +153,86 @@ final class CodexAppServerClientTests: XCTestCase {
         XCTAssertFalse(SessionSourcePolicy.isInternalHookSource(nil))
     }
 
+    func testNewSessionPolicyPreservesExistingSelectionsAndOrdering() throws {
+        let sortAt = Date(timeIntervalSince1970: 15)
+        let existing = [false, true].enumerated().map { index, included in
+            PersistedSession(
+                sessionID: "existing-\(index)",
+                isIncludedInHUD: included,
+                discoveredAt: Date(timeIntervalSince1970: 10),
+                lastUpdatedAt: Date(timeIntervalSince1970: 20),
+                settingsListSortAt: sortAt,
+                rotationIndex: index
+            )
+        }
+        let threads = [summary("existing-0", 100), summary("existing-1", 100), summary("new", 100)]
+
+        for includeNew in [false, true] {
+            let result = CodexThreadImporter.merge(
+                threads, into: existing, nextRotationIndex: 2, includeNewSessionsInHUD: includeNew
+            )
+            let byID = Dictionary(uniqueKeysWithValues: result.sessions.map { ($0.sessionID, $0) })
+            XCTAssertEqual(result.addedCount, 1)
+            XCTAssertEqual(result.updatedCount, 2)
+            XCTAssertEqual(result.nextRotationIndex, 3)
+            for index in 0...1 {
+                let session = try XCTUnwrap(byID["existing-\(index)"])
+                XCTAssertEqual(session.isIncludedInHUD, index == 1)
+                XCTAssertEqual(session.rotationIndex, index)
+                XCTAssertEqual(session.settingsListSortAt, sortAt)
+                XCTAssertEqual(session.lastActivityAt, Date(timeIntervalSince1970: 100))
+            }
+            let added = try XCTUnwrap(byID["new"])
+            XCTAssertEqual(added.isIncludedInHUD, includeNew)
+            XCTAssertEqual(added.rotationIndex, 2)
+            XCTAssertEqual(added.settingsListSortAt, Date(timeIntervalSince1970: 100))
+        }
+    }
+
+    func testAutomaticImportDoesNotEnablePreviouslyImportedSession() {
+        let manual = CodexThreadImporter.merge(
+            [summary("manual", 100)], into: [], nextRotationIndex: 0, includeNewSessionsInHUD: false
+        )
+        let automatic = CodexThreadImporter.merge(
+            [summary("manual", 200)], into: manual.sessions,
+            nextRotationIndex: manual.nextRotationIndex, includeNewSessionsInHUD: true
+        )
+
+        XCTAssertEqual(automatic.sessions.count, 1)
+        XCTAssertEqual(automatic.sessions.first?.isIncludedInHUD, false)
+        XCTAssertEqual(automatic.sessions.first?.lastActivityAt, Date(timeIntervalSince1970: 200))
+        XCTAssertEqual(automatic.addedCount, 0)
+        XCTAssertEqual(automatic.updatedCount, 1)
+        XCTAssertEqual(automatic.nextRotationIndex, 1)
+    }
+
+    func testEnabledImportCreatesDuplicateIDOnlyOnce() {
+        let result = CodexThreadImporter.merge(
+            [summary("duplicate", 100), summary("duplicate", 200)],
+            into: [], nextRotationIndex: 7, includeNewSessionsInHUD: true
+        )
+
+        XCTAssertEqual(result.sessions.count, 1)
+        XCTAssertEqual(result.sessions.first?.isIncludedInHUD, true)
+        XCTAssertEqual(result.sessions.first?.lastActivityAt, Date(timeIntervalSince1970: 200))
+        XCTAssertEqual(result.sessions.first?.rotationIndex, 7)
+        XCTAssertEqual(result.addedCount, 1)
+        XCTAssertEqual(result.updatedCount, 1)
+        XCTAssertEqual(result.nextRotationIndex, 8)
+    }
+
+    func testEnabledImportStillExcludesInternalSources() {
+        let result = CodexThreadImporter.merge(
+            [summary("official", 100, source: "cli"), summary("internal", 100, source: "subAgentReview")],
+            into: [], nextRotationIndex: 0, includeNewSessionsInHUD: true
+        )
+
+        XCTAssertEqual(result.sessions.map(\.sessionID), ["official"])
+        XCTAssertEqual(result.sessions.first?.isIncludedInHUD, true)
+        XCTAssertEqual(result.addedCount, 1)
+        XCTAssertEqual(result.nextRotationIndex, 1)
+    }
+
     func testImportDefensivelyFiltersExplicitInternalSources() {
         let official = CodexThreadSummary(id: "official", name: nil, cwd: "/work/app", createdAt: .now, updatedAt: .now, sourceKind: "cli")
         let internalThread = CodexThreadSummary(id: "internal", name: nil, cwd: "/work/app", createdAt: .now, updatedAt: .now, sourceKind: "subAgentReview")

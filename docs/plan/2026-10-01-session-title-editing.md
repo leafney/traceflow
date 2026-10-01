@@ -186,3 +186,8 @@ lastUpdatedAt、lastActivityAt、settingsListSortAt、discoveredAt、rotationInd
 已查看真实 SettingsView 在 680 点宽度的深浅色渲染和编辑弹窗深浅色截图，文字/输入框/按钮完整可见，两区域标题一致。临时截图驱动移出长期测试目标。HUD 横纵继续读取共同 displayTitle，无布局改动。
 
 验收边界：鼠标实际点击、中文输入法组合、Enter/Escape 的真实按键、VoiceOver、退出进程后重启及 HUD 横纵实屏互动尚未手动执行。已实现相关原生按钮/键盘快捷键/焦点/草稿/错误路径并自动验证模型恢复；不能将这些自动结果称为实际交互验收。本轮没有部署或修改 Codex 原名。
+
+
+## 审查修复
+
+用户授权按审查方案直接修复。新增统一编辑状态与原生输入交互回归，强化轮播周期测试；完整 198 项测试通过。真实两个标题入口打开 sheet、Escape、输入法及跨进程验收仍按审查记录跟踪。

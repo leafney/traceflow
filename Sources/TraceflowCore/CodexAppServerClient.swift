@@ -78,7 +78,8 @@ public enum CodexThreadImporter {
     public static func merge(
         _ threads: [CodexThreadSummary],
         into existingSessions: [PersistedSession],
-        nextRotationIndex: Int
+        nextRotationIndex: Int,
+        includeNewSessionsInHUD: Bool = false
     ) -> CodexThreadImportResult {
         var sessionsByID = Dictionary(uniqueKeysWithValues: existingSessions.map { ($0.sessionID, $0) })
         var nextIndex = nextRotationIndex
@@ -104,7 +105,7 @@ public enum CodexThreadImporter {
                     projectPath: thread.cwd,
                     projectName: TitleBuilder.projectName(from: thread.cwd),
                     codexThreadName: threadName,
-                    isIncludedInHUD: false,
+                    isIncludedInHUD: includeNewSessionsInHUD,
                     discoveredAt: thread.createdAt,
                     lastUpdatedAt: thread.updatedAt,
                     lastActivityAt: thread.updatedAt,

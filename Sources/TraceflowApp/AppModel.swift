@@ -475,7 +475,8 @@ final class AppModel: ObservableObject {
             sessionID: envelope.payload.sessionID,
             cwd: envelope.payload.cwd,
             now: now,
-            rotationIndex: nextRotationIndex
+            rotationIndex: nextRotationIndex,
+            isIncludedInHUD: autoEnableNewSessions
         )
         return SessionStateMachine(snapshot: SessionSnapshot(persisted: persisted))
     }
@@ -550,10 +551,12 @@ final class AppModel: ObservableObject {
 
     private func mergeCodexThreads(_ threads: [CodexThreadSummary], isManual: Bool) {
         let current = machines.values.map(\.snapshot.persisted)
+        let includeNewSessionsInHUD = !isManual && autoEnableNewSessions
         let result = CodexThreadImporter.merge(
             threads,
             into: current,
-            nextRotationIndex: nextRotationIndex
+            nextRotationIndex: nextRotationIndex,
+            includeNewSessionsInHUD: includeNewSessionsInHUD
         )
         var mergedMachines: [String: SessionStateMachine] = [:]
         for persisted in result.sessions {

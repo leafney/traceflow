@@ -6,6 +6,55 @@ import TraceflowCore
 
 @MainActor
 final class HUDTitleRenderingTests: XCTestCase {
+    func testProductionPanelClearsDefaultAndEditedTitlePixels() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("无桌面屏幕，不能验证生产透明浮窗") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.autoEnableNewSessions = true
+        fixture.model.hudLayoutMode = .horizontalLeft
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        controller.show()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        for name in ["123------", "一段明显更长的标题用于检查旧字形", "Q", "Traceflow"] {
+            try await fixture.hook("live-title", event: .userPromptSubmit)
+            try fixture.model.setCustomTitle(name, sessionID: "live-title")
+            try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+            try await fixture.hook("live-title", event: .interrupt)
+            XCTAssertNil(fixture.model.displayedSession)
+            try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+        }
+    }
+
+    private func assertProductionTitleMatchesFreshPanel(_ controller: HUDPanelController,
+                                                        fixture: SessionIntegrationFixture) async throws {
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let actual = try captureTitle(controller)
+        // A second production panel is only a reference. Never replace the tested
+        // panel's hosting view, background, or native backing store.
+        let reference = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { reference.hide() }
+        reference.show()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(actual, try captureTitle(reference), "生产承载视图中不应残留默认名称或旧标题")
+    }
+
+    private func captureTitle(_ controller: HUDPanelController) throws -> Data {
+        let container = try XCTUnwrap(controller.window?.contentView)
+        let hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
+        hosting.layoutSubtreeIfNeeded()
+        let layout = (hosting as! NSHostingView<HUDView>).rootView.model.hudLayoutMode
+        let origin: CGFloat = layout.lightsAtLeadingEdge ? 104 : 40
+        let rect = layout.isHorizontal
+            ? NSRect(x: origin, y: 0, width: 275, height: 40)
+            : NSRect(x: 0, y: hosting.isFlipped ? origin : hosting.bounds.height - origin - 275,
+                     width: 40, height: 275)
+        let bitmap = try XCTUnwrap(hosting.bitmapImageRepForCachingDisplay(in: rect))
+        hosting.cacheDisplay(in: rect, to: bitmap)
+        return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    }
+
     func testPlaceholderAndSessionTitlesRemainExclusiveAfterRepeatedSwitches() async throws {
         _ = NSApplication.shared
         let fixture = try SessionIntegrationFixture()

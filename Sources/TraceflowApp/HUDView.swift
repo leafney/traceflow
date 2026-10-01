@@ -120,11 +120,11 @@ struct HUDView: View {
         case .none:
             return .identity
         case .fade:
-            return .asymmetric(insertion: .opacity, removal: .identity)
+            return .opacity
         case .slide:
             return .asymmetric(
                 insertion: .move(edge: vertical ? .leading : .bottom).combined(with: .opacity),
-                removal: .identity
+                removal: .move(edge: vertical ? .trailing : .top).combined(with: .opacity)
             )
         }
     }

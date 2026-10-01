@@ -41,6 +41,10 @@ struct HUDView: View {
                     .frame(width: HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2, height: HUDMetrics.shortAxis)
                     .clipped()
                     .transaction { $0.animation = titleAnimation }
+                    // Crossing the placeholder boundary must discard the entire old
+                    // transition container, including any retained outgoing title.
+                    .id(model.displayedSession != nil)
+                    .transition(.identity)
                 }
             }
         }
@@ -67,6 +71,8 @@ struct HUDView: View {
                     .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2)
                     .clipped()
                     .transaction { $0.animation = titleAnimation }
+                    .id(model.displayedSession != nil)
+                    .transition(.identity)
                 }
             }
         }
@@ -109,11 +115,11 @@ struct HUDView: View {
         case .none:
             return .identity
         case .fade:
-            return .opacity
+            return .asymmetric(insertion: .opacity, removal: .identity)
         case .slide:
             return .asymmetric(
                 insertion: .move(edge: vertical ? .leading : .bottom).combined(with: .opacity),
-                removal: .move(edge: vertical ? .trailing : .top).combined(with: .opacity)
+                removal: .identity
             )
         }
     }

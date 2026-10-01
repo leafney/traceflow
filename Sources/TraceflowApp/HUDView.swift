@@ -6,6 +6,11 @@ struct HUDView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
+    // displayTitle includes the project prefix; the HUD shows only the session.
+    var displayedTitle: String {
+        model.displayedSession?.sessionListTitle ?? "Traceflow"
+    }
+
     var body: some View {
         Group {
             switch model.hudLayoutMode {
@@ -62,7 +67,7 @@ struct HUDView: View {
                         .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
                 case .title:
                     ZStack {
-                        VerticalMixedTitleView(title: model.displayedSession?.displayTitle ?? "Traceflow", color: model.hudTitleColor)
+                        VerticalMixedTitleView(title: displayedTitle, color: model.hudTitleColor)
                             .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
                             .compositingGroup()
                             .id(model.displayedSession?.id ?? "placeholder")
@@ -84,7 +89,7 @@ struct HUDView: View {
     }
 
     private var title: some View {
-        Text(model.displayedSession?.displayTitle ?? "Traceflow")
+        Text(displayedTitle)
             .font(.system(size: 13, weight: .medium, design: .rounded))
             .foregroundStyle(model.hudTitleColor == .white ? Color.white : Color.black)
             .lineLimit(1)
@@ -92,7 +97,7 @@ struct HUDView: View {
     }
 
     private var accessibilityDescription: String {
-        let title = model.displayedSession?.displayTitle ?? "Traceflow"
+        let title = displayedTitle
         let state: String
         switch model.displayedSession?.state {
         case .attention: state = "需要处理"

@@ -11,15 +11,24 @@ final class HUDTitleRenderingTests: XCTestCase {
         let fixture = try SessionIntegrationFixture()
         defer { fixture.cleanUp() }
         fixture.model.autoEnableNewSessions = true
+        XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, "Traceflow")
         for layout in HUDLayoutMode.allCases {
             fixture.model.hudLayoutMode = layout
             let renderer = ImageRenderer(content: HUDView(model: fixture.model))
             for _ in 0..<2 {
                 try await fixture.hook("title", event: .userPromptSubmit)
+                try fixture.model.setCustomTitle("提示显示逻辑", sessionID: "title")
                 XCTAssertNotNil(fixture.model.displayedSession)
+                let session = try XCTUnwrap(fixture.model.displayedSession)
+                XCTAssertEqual(session.persisted.projectName, "qa")
+                XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, session.sessionListTitle)
+                XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, "提示显示逻辑")
+                XCTAssertNotEqual(HUDView(model: fixture.model).displayedTitle, session.displayTitle,
+                                  "有会话时不能使用带项目名称的拼接标题")
                 try await assertTitleMatchesFreshView(renderer, model: fixture.model, layout: layout)
                 try await fixture.hook("title", event: .interrupt)
                 XCTAssertNil(fixture.model.displayedSession)
+                XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, "Traceflow")
                 try await assertTitleMatchesFreshView(renderer, model: fixture.model, layout: layout)
             }
         }

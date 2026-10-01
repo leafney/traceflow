@@ -9,6 +9,19 @@ final class HUDLightAnimationTests: XCTestCase {
         for (value, result) in zip(progress, expected) {
             XCTAssertEqual(HUDLightAnimation.phase(for: .attention, referenceTime: value * 0.56), result, accuracy: 0.000_001)
         }
+
+        let samples: [(progress: Double, body: Double, glow: Double, scale: Double)] = [
+            (0.075, 0.775, 0.5, 1),
+            (0.3, 1, 1, 1.1),
+            (0.85, 0.55, 0, 0.9)
+        ]
+        for sample in samples {
+            let visual = HUDLightAnimation.parameters(for: .attention, isActive: true, referenceTime: 0.56 * sample.progress, reduceMotion: false)
+            XCTAssertEqual(visual.bodyOpacity, sample.body, accuracy: 0.000_001)
+            XCTAssertEqual(visual.glowIntensity, sample.glow, accuracy: 0.000_001)
+            XCTAssertEqual(visual.scale, sample.scale, accuracy: 0.000_001)
+            XCTAssertFalse(visual.isTimelinePaused)
+        }
     }
 
     func testRunningAndCompletedUseSmoothWave() {
@@ -35,6 +48,9 @@ final class HUDLightAnimationTests: XCTestCase {
         XCTAssertEqual(low.glowIntensity, 0, accuracy: 0.000_001)
         XCTAssertEqual(middle.glowIntensity, 0.5, accuracy: 0.000_001)
         XCTAssertEqual(high.glowIntensity, 1, accuracy: 0.000_001)
+        for visual in [low, middle, high] {
+            XCTAssertFalse(visual.isTimelinePaused)
+        }
     }
 
     func testCompletedBodyAndGlowBreatheTogether() {
@@ -54,11 +70,14 @@ final class HUDLightAnimationTests: XCTestCase {
     }
 
     func testInactiveAndReduceMotionVisualsAreStatic() {
-        let inactive = HUDLightAnimation.parameters(for: .attention, isActive: false, referenceTime: 1, reduceMotion: false)
-        let reduced = HUDLightAnimation.parameters(for: .attention, isActive: true, referenceTime: 1, reduceMotion: true)
-
-        XCTAssertEqual(inactive, HUDLightVisualParameters(scale: 1, bodyOpacity: 0.18, glowIntensity: 0, isTimelinePaused: true))
-        XCTAssertEqual(reduced, HUDLightVisualParameters(scale: 1, bodyOpacity: 1, glowIntensity: 1, isTimelinePaused: true))
+        for state in [SessionRuntimeState.attention, .completed, .running] {
+            for reduceMotion in [false, true] {
+                let inactive = HUDLightAnimation.parameters(for: state, isActive: false, referenceTime: 1, reduceMotion: reduceMotion)
+                XCTAssertEqual(inactive, HUDLightVisualParameters(scale: 1, bodyOpacity: 0.18, glowIntensity: 0, isTimelinePaused: true))
+            }
+            let reduced = HUDLightAnimation.parameters(for: state, isActive: true, referenceTime: 1, reduceMotion: true)
+            XCTAssertEqual(reduced, HUDLightVisualParameters(scale: 1, bodyOpacity: 1, glowIntensity: 1, isTimelinePaused: true))
+        }
     }
 
     func testNegativeReferenceTimeHasValidPhase() {

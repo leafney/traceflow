@@ -17,11 +17,20 @@ struct SessionTitleEditorView: View {
             Text("编辑会话标题").font(.headline)
             Text("\(editing.session?.persisted.projectName ?? "未知项目") · \(String(editing.sessionID.prefix(8)))")
                 .font(.caption).foregroundStyle(.secondary)
-            TextField("会话标题", text: $editing.draft)
-                .textFieldStyle(.roundedBorder)
-                .focused($titleFocused)
-                .accessibilityLabel("会话标题")
-                .onSubmit { save() }
+            LabeledContent("原标题") {
+                Text(editing.session?.defaultConversationTitle ?? "未命名会话")
+                    .lineLimit(2)
+                    .help(editing.session?.defaultConversationTitle ?? "未命名会话")
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            LabeledContent("自定义标题") {
+                TextField("会话标题", text: $editing.draft)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($titleFocused)
+                    .accessibilityLabel("会话标题")
+                    .onSubmit { save() }
+            }
             HStack {
                 Text("仅修改本地显示标题，项目名保持不变").foregroundStyle(.secondary)
                 Spacer()

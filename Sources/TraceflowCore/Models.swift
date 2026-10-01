@@ -161,7 +161,13 @@ public struct SessionSnapshot: Sendable, Equatable, Identifiable {
     }
 
     public var effectiveConversationTitle: String? {
-        for candidate in [persisted.customTitle, conversationSummary, persisted.codexThreadName] {
+        if let customTitle = persisted.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !customTitle.isEmpty { return customTitle }
+        return defaultConversationTitle
+    }
+
+    public var defaultConversationTitle: String? {
+        for candidate in [conversationSummary, persisted.codexThreadName] {
             guard let candidate else { continue }
             let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }

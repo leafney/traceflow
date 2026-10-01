@@ -10,11 +10,13 @@ final class TitleBuilderTests: XCTestCase {
         )
         var snapshot = SessionSnapshot(persisted: persisted, conversationSummary: "输入摘要")
         XCTAssertEqual(snapshot.sessionListTitle, "自定义 👨‍👩‍👧‍👦")
+        XCTAssertEqual(snapshot.defaultConversationTitle, "输入摘要")
         XCTAssertEqual(snapshot.displayTitle, "项目 · 自定义 👨‍👩‍👧‍👦")
         snapshot.persisted.customTitle = nil
         XCTAssertEqual(snapshot.sessionListTitle, "输入摘要")
         snapshot.persisted.customTitle = " \n "
         snapshot.conversationSummary = " \n "
+        XCTAssertEqual(snapshot.defaultConversationTitle, "原始名称")
         XCTAssertEqual(snapshot.sessionListTitle, "原始名称")
         snapshot.persisted.codexThreadName = nil
         XCTAssertNil(snapshot.effectiveConversationTitle)

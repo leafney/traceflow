@@ -41,35 +41,79 @@ final class HUDLayoutControllerTests: XCTestCase {
 
     func testScreenCompositeAfterSamePanelLayoutSwitch() async throws {
         _ = NSApplication.shared
-        guard CGPreflightScreenCaptureAccess() else {
-            throw XCTSkip("缺少屏幕录制权限：同窗口布局切换残影待实屏验收")
+        for backdropColor in [NSColor.white, .darkGray] {
+            let screen = try HUDScreenFixture(color: backdropColor)
+            defer { screen.close() }
+            let fixture = try SessionIntegrationFixture()
+            defer { fixture.cleanUp() }
+            fixture.model.hudLayoutMode = .horizontalLeft
+            fixture.model.hudTitleColor = backdropColor == .white ? .black : .white
+            fixture.model.previewTransparency(86)
+            let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+            defer { controller.hide() }
+            controller.show()
+            for layout in [HUDLayoutMode.horizontalRight, .horizontalLeft, .verticalTop,
+                           .verticalBottom, .verticalTop, .horizontalRight] {
+                let previous = fixture.model.hudLayoutMode
+                fixture.model.hudLayoutMode = layout
+                await Task.yield()
+                try await screen.assertSettled(controller, fixture: fixture,
+                                               regions: oldRegions(previous, size: controller.window!.frame.size))
+            }
+            for index in 0..<20 { fixture.model.hudLayoutMode = HUDLayoutMode.allCases[index % 4] }
+            fixture.model.hudLayoutMode = .horizontalLeft
+            await Task.yield()
+            try await screen.assertSettled(controller, fixture: fixture)
+            controller.hide()
+            fixture.model.hudLayoutMode = .verticalBottom
+            try await Task.sleep(nanoseconds: 50_000_000)
+            XCTAssertFalse(controller.window!.isVisible)
+            controller.show()
+            try await screen.assertSettled(controller, fixture: fixture)
+            // Same-screen movement: the capture helper preserves this new origin.
+            screen.place(controller.window!)
+            controller.window!.setFrameOrigin(NSPoint(x: screen.origin.x + 10, y: screen.origin.y + 10))
+            try await screen.assertSettled(controller, fixture: fixture, placePanel: false)
         }
+    }
+
+    private func oldRegions(_ layout: HUDLayoutMode, size: NSSize) -> [NSRect] {
+        // Both leading/trailing bands are checked; coordinates are screenshot-local.
+        if layout.isHorizontal {
+            return [NSRect(x: 0, y: 0, width: 104, height: size.height),
+                    NSRect(x: max(0, size.width - 104), y: 0, width: 104, height: size.height),
+                    NSRect(x: 0, y: 0, width: size.width, height: 40)]
+        }
+        return [NSRect(x: 0, y: 0, width: size.width, height: 104),
+                NSRect(x: 0, y: max(0, size.height - 104), width: size.width, height: 104),
+                NSRect(x: 0, y: 0, width: 40, height: size.height)]
+    }
+
+    func testScreenLayoutChangesAfterCrossScreenRoundTrip() async throws {
+        _ = NSApplication.shared
+        let first = try HUDScreenFixture(color: .white)
+        defer { first.close() }
+        guard let other = NSScreen.screens.first(where: { $0 !== NSScreen.main }) else {
+            throw XCTSkip("跨屏回归需要第二块屏幕：待人工验收")
+        }
+        let second = try HUDScreenFixture(color: .white, screen: other)
+        defer { second.close() }
         let fixture = try SessionIntegrationFixture()
         defer { fixture.cleanUp() }
-        fixture.model.hudLayoutMode = .horizontalLeft
-        fixture.model.hudTitleColor = .white
         fixture.model.previewTransparency(86)
+        fixture.model.hudTitleColor = .black
+        fixture.model.hudLayoutMode = .horizontalLeft
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
         controller.show()
-        let panel = try XCTUnwrap(controller.window)
-        for layout in [HUDLayoutMode.horizontalRight, .horizontalLeft, .verticalTop, .verticalBottom] {
-            fixture.model.hudLayoutMode = layout
-            try await Task.sleep(nanoseconds: 300_000_000)
-            // Capture normal WindowServer output before any auxiliary cacheDisplay.
-            let actual = try await captureWindow(panel, fixture: fixture)
-            try await Task.sleep(nanoseconds: 1_000_000_000)
-            let persistent = try await captureWindow(panel, fixture: fixture)
-            let reference = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
-            reference.show()
-            let cleanPanel = try XCTUnwrap(reference.window)
-            cleanPanel.setFrameOrigin(panel.frame.origin)
-            try await Task.sleep(nanoseconds: 300_000_000)
-            let expected = try await captureWindow(cleanPanel, fixture: fixture)
-            reference.hide()
-            XCTAssertEqual(actual, expected, "正常屏幕合成不应保留旧布局")
-            XCTAssertEqual(persistent, expected, "一秒后不应存在持续残影")
-        }
+        let window = try XCTUnwrap(controller.window)
+        try await first.assertSettled(controller, fixture: fixture)
+        try await second.assertSettled(controller, fixture: fixture)
+        try await first.assertSettled(controller, fixture: fixture)
+        fixture.model.hudLayoutMode = .horizontalRight
+        await Task.yield()
+        try await first.assertSettled(controller, fixture: fixture)
+        XCTAssertTrue(controller.window === window)
     }
 
     func testSamePanelCrossOrientationAtTransparencyBoundary() async throws {
@@ -170,7 +214,7 @@ final class HUDLayoutControllerTests: XCTestCase {
         let container = try XCTUnwrap(window.contentView)
         let initialHosting = try soleHosting(container)
         fixture.model.hudLayoutMode = .horizontalRight
-        // The observer's switch is queued first; hide then runs before its redraw finalizer.
+        // A pending layout change must not make the subsequently hidden panel visible.
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
                 controller.hide()
@@ -213,17 +257,6 @@ final class HUDLayoutControllerTests: XCTestCase {
         XCTAssertTrue(try soleHosting(container) === current)
     }
 
-    private func captureWindow(_ window: NSWindow, fixture: SessionIntegrationFixture) async throws -> Data {
-        let file = fixture.root.appendingPathComponent(UUID().uuidString + ".png")
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-x", "-o", "-l", String(window.windowNumber), file.path]
-        try process.run()
-        try await fixture.waitUntil { !process.isRunning }
-        XCTAssertEqual(process.terminationStatus, 0)
-        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: Data(contentsOf: file)))
-        return try XCTUnwrap(bitmap.tiffRepresentation)
-    }
 
     private func soleHosting(_ container: NSView) throws -> NSHostingView<HUDView> {
         let hosts = container.subviews.compactMap { $0 as? NSHostingView<HUDView> }

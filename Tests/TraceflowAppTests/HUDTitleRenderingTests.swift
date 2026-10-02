@@ -6,7 +6,7 @@ import TraceflowCore
 
 @MainActor
 final class HUDTitleRenderingTests: XCTestCase {
-    func testProductionPanelClearsDefaultAndEditedTitlePixels() async throws {
+    func testHostedModelUsesDefaultAndEditedSessionTitles() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("无桌面屏幕，不能验证生产透明浮窗") }
         let fixture = try SessionIntegrationFixture()
@@ -19,15 +19,17 @@ final class HUDTitleRenderingTests: XCTestCase {
         try await Task.sleep(nanoseconds: 300_000_000)
         for name in ["123------", "一段明显更长的标题用于检查旧字形", "Q", "Traceflow"] {
             try await fixture.hook("live-title", event: .userPromptSubmit)
+            XCTAssertFalse(fixture.model.shouldAnimateDisplayChange)
             try fixture.model.setCustomTitle(name, sessionID: "live-title")
-            try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+            try await assertCurrentHostedTitle(controller, fixture: fixture)
             try await fixture.hook("live-title", event: .interrupt)
             XCTAssertNil(fixture.model.displayedSession)
-            try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+            XCTAssertFalse(fixture.model.shouldAnimateDisplayChange)
+            try await assertCurrentHostedTitle(controller, fixture: fixture)
         }
     }
 
-    func testProductionPanelClearsInterruptedTransitionsInEveryLayout() async throws {
+    func testInterruptedSessionChangesPublishLatestHostedTitleInEveryLayout() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("无桌面屏幕") }
         let fixture = try SessionIntegrationFixture()
@@ -52,12 +54,12 @@ final class HUDTitleRenderingTests: XCTestCase {
                 XCTAssertEqual(fixture.model.displayedSession?.id, "c")
                 XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
                 try fixture.model.setCustomTitle("Q", sessionID: "c")
-                try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+                try await assertCurrentHostedTitle(controller, fixture: fixture)
                 try await Task.sleep(nanoseconds: 1_000_000_000)
-                try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+                try await assertCurrentHostedTitle(controller, fixture: fixture)
                 for id in ["a", "b", "c"] { fixture.model.setIncluded(false, sessionID: id) }
                 XCTAssertNil(fixture.model.displayedSession)
-                try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+                try await assertCurrentHostedTitle(controller, fixture: fixture)
                 controller.hide()
                 // Re-include only idle sessions to start the next case at default.
                 for id in ["a", "b", "c"] {
@@ -68,108 +70,107 @@ final class HUDTitleRenderingTests: XCTestCase {
         }
     }
 
-    func testScreenCompositePreservesSlideAndClearsDefault() async throws {
+    func testScreenTitlesAfterLayoutInterruptAndDefaultBoundaries() async throws {
         _ = NSApplication.shared
-        guard CGPreflightScreenCaptureAccess() else {
-            throw XCTSkip("缺少屏幕录制权限：屏幕合成与动画中间帧待人工验收；原生绘制测试不能替代")
-        }
-        let screen = try XCTUnwrap(NSScreen.main)
-        let fixture = try SessionIntegrationFixture()
-        defer { fixture.cleanUp() }
-        fixture.model.autoEnableNewSessions = true
-        fixture.model.hudTitleColor = .black
-        fixture.model.previewTransparency(100)
-        let backdrop = NSWindow(contentRect: NSRect(x: screen.frame.midX - 250, y: screen.frame.midY - 250,
-                                                    width: 500, height: 500),
-                                styleMask: [.borderless], backing: .buffered, defer: false)
-        backdrop.level = .floating
-        defer { backdrop.orderOut(nil) }
-        for layout in HUDLayoutMode.allCases {
-            fixture.model.hudLayoutMode = layout
+        for color in [NSColor.white, .darkGray] {
+            let screen = try HUDScreenFixture(color: color)
+            defer { screen.close() }
+            let fixture = try SessionIntegrationFixture()
+            defer { fixture.cleanUp() }
+            fixture.model.autoEnableNewSessions = true
+            fixture.model.hudTitleColor = color == .white ? .black : .white
+            fixture.model.previewTransparency(86)
             let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
             defer { controller.hide() }
             controller.show()
-            let panel = try XCTUnwrap(controller.window)
-            panel.setFrameOrigin(NSPoint(x: backdrop.frame.minX + 40, y: backdrop.frame.minY + 40))
-            for color in [NSColor.white, NSColor.darkGray] {
-                backdrop.backgroundColor = color
-                backdrop.orderFrontRegardless()
-                panel.orderFrontRegardless()
+            for layout in HUDLayoutMode.allCases {
+                fixture.model.hudLayoutMode = layout
+                try await Task.sleep(nanoseconds: 50_000_000)
                 try await fixture.hook("screen-a", event: .userPromptSubmit)
-                try fixture.model.setCustomTitle("MMMMMM", sessionID: "screen-a")
-                try await Task.sleep(nanoseconds: 300_000_000)
-                let before = try await captureScreenTitle(panel, layout: layout, fixture: fixture)
-                try await fixture.hook("screen-b", event: .userPromptSubmit)
-                try fixture.model.setCustomTitle("MMMMMM", sessionID: "screen-b")
+                try fixture.model.setCustomTitle("首个会话", sessionID: "screen-a")
+                XCTAssertFalse(fixture.model.shouldAnimateDisplayChange)
+                try await screen.assertSettled(controller, fixture: fixture,
+                                               regions: [screenTitleRegion(layout)], compareFull: false)
                 try await fixture.hook("screen-b", event: .permissionRequest)
-                XCTAssertEqual(fixture.model.displayedSession?.id, "screen-b")
                 XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
-                try await Task.sleep(nanoseconds: 30_000_000)
-                let middle = try await captureScreenTitle(panel, layout: layout, fixture: fixture)
-                try await Task.sleep(nanoseconds: 300_000_000)
-                let settled = try await captureScreenTitle(panel, layout: layout, fixture: fixture)
-                // Same text on both sessions: only movement/opacity can change
-                // the ink distribution, rather than different title glyphs.
-                XCTAssertNotEqual(inkDistribution(middle, vertical: !layout.isHorizontal),
-                                  inkDistribution(settled, vertical: !layout.isHorizontal),
-                                  "会话切换必须保留可见的位移或透明度中间帧")
-                XCTAssertEqual(before, settled, "动画结束后只能保留当前标题")
+                // Replace the hosting tree while the title transition is active.
+                fixture.model.hudLayoutMode = layout == .horizontalLeft ? .horizontalRight : .horizontalLeft
+                await Task.yield()
+                try await screen.assertSettled(controller, fixture: fixture,
+                                               regions: [screenTitleRegion(fixture.model.hudLayoutMode)],
+                                               compareFull: false)
                 for id in ["screen-a", "screen-b"] { fixture.model.setIncluded(false, sessionID: id) }
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-                let defaultFrame = try await captureScreenTitle(panel, layout: layout, fixture: fixture)
-                let reference = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
-                reference.show()
-                let referencePanel = try XCTUnwrap(reference.window)
-                referencePanel.setFrameOrigin(panel.frame.origin)
-                try await Task.sleep(nanoseconds: 300_000_000)
-                let expectedDefault = try await captureScreenTitle(referencePanel, layout: layout, fixture: fixture)
-                XCTAssertEqual(defaultFrame, expectedDefault)
-                reference.hide()
+                XCTAssertNil(fixture.model.displayedSession)
+                XCTAssertFalse(fixture.model.shouldAnimateDisplayChange)
+                try await screen.assertSettled(controller, fixture: fixture)
                 for id in ["screen-a", "screen-b"] {
                     try await fixture.hook(id, event: .interrupt)
                     fixture.model.setIncluded(true, sessionID: id)
                 }
             }
-            controller.hide()
         }
     }
 
-    private func captureScreenTitle(_ panel: NSWindow, layout: HUDLayoutMode,
-                                    fixture: SessionIntegrationFixture) async throws -> Data {
-        let primary = try XCTUnwrap(NSScreen.screens.first)
-        let frame = panel.frame
-        let file = fixture.root.appendingPathComponent(UUID().uuidString + ".png")
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-x", "-R\(Int(frame.minX)),\(Int(primary.frame.maxY - frame.maxY)),\(Int(frame.width)),\(Int(frame.height))", file.path]
-        try process.run()
-        try await fixture.waitUntil { !process.isRunning }
-        XCTAssertEqual(process.terminationStatus, 0)
-        let image = try XCTUnwrap(NSImage(contentsOf: file)?.cgImage(forProposedRect: nil, context: nil, hints: nil))
-        let scale = CGFloat(image.width) / frame.width
-        let origin: CGFloat = layout.lightsAtLeadingEdge ? 104 : 0
-        // At 100% transparency the icon is collapsed; exclude capsule borders.
-        let rect = layout.isHorizontal
-            ? CGRect(x: (origin + 7) * scale, y: 2 * scale, width: 260 * scale, height: 36 * scale)
-            : CGRect(x: 2 * scale, y: (origin + 7) * scale, width: 36 * scale, height: 260 * scale)
-        let title = try XCTUnwrap(image.cropping(to: rect))
-        let bitmap = NSBitmapImageRep(cgImage: title)
-        return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    private func screenTitleRegion(_ layout: HUDLayoutMode) -> NSRect {
+        let offset: CGFloat = layout.lightsAtLeadingEdge ? 104 : 0
+        return layout.isHorizontal
+            ? NSRect(x: offset + 7, y: 2, width: 260, height: 36)
+            : NSRect(x: 2, y: offset + 7, width: 36, height: 260)
     }
 
-    private func inkDistribution(_ png: Data, vertical: Bool) -> [Int] {
-        guard let bitmap = NSBitmapImageRep(data: png) else { return [] }
-        var distribution = Array(repeating: 0, count: vertical ? bitmap.pixelsWide : bitmap.pixelsHigh)
-        for y in 0..<bitmap.pixelsHigh {
-            for x in 0..<bitmap.pixelsWide {
-                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-                distribution[vertical ? x : y] += Int((1 - color.redComponent) * 255)
+    func testScreenAnimationUsesOnlySamplesCapturedInsideTransition() async throws {
+        _ = NSApplication.shared
+        let screen = try HUDScreenFixture(color: .white)
+        defer { screen.close() }
+        for layout in [HUDLayoutMode.horizontalLeft, .verticalTop] {
+            var verified = false
+            for _ in 0..<3 {
+                let fixture = try SessionIntegrationFixture()
+                defer { fixture.cleanUp() }
+                fixture.model.autoEnableNewSessions = true
+                fixture.model.hudLayoutMode = layout
+                fixture.model.hudTitleColor = .black
+                fixture.model.previewTransparency(100)
+                let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+                defer { controller.hide() }
+                controller.show()
+                let panel = try XCTUnwrap(controller.window)
+                screen.place(panel)
+                try await fixture.hook("animation-a", event: .userPromptSubmit)
+                try fixture.model.setCustomTitle("MMMMMM", sessionID: "animation-a")
+                try await fixture.hook("animation-b", event: .userPromptSubmit)
+                try fixture.model.setCustomTitle("MMMMMM", sessionID: "animation-b")
+                try await Task.sleep(nanoseconds: 300_000_000)
+                let before = try await screen.capture(panel, fixture: fixture)
+                let began = ProcessInfo.processInfo.systemUptime
+                try await fixture.hook("animation-b", event: .permissionRequest)
+                XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
+                try await Task.sleep(nanoseconds: 20_000_000)
+                let sampleStart = ProcessInfo.processInfo.systemUptime - began
+                let middle = try await screen.capture(panel, fixture: fixture)
+                let sampleEnd = ProcessInfo.processInfo.systemUptime - began
+                // Process launch cannot be assumed instantaneous. The whole capture
+                // interval must be inside the product transition, or retry it.
+                let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                    ? 0.15 : HUDTitleTransition.maximumDuration
+                guard sampleStart > 0, sampleEnd < duration else { continue }
+                try await Task.sleep(nanoseconds: 300_000_000)
+                let settled = try await screen.capture(panel, fixture: fixture)
+                let title = screenTitleRegion(layout)
+                before.assertSimilar(to: settled, points: panel.frame.size, regions: [title], compareFull: false)
+                XCTAssertGreaterThan(middle.changedFraction(comparedTo: settled, points: panel.frame.size,
+                                                           region: title), 0.005,
+                                     "已确认采样位于动画内，相同标题应有位移或透明度变化")
+                verified = true
+                break
+            }
+            if !verified {
+                throw XCTSkip("三次采样均未落在零点二秒动画内：采样不足，动画方向与观感待人工验收")
             }
         }
-        return distribution
     }
 
-    func testUntitledSessionAndLiteralDefaultNameKeepExclusiveContent() async throws {
+    func testAuxiliaryOffscreenUntitledAndLiteralDefaultTitles() async throws {
         _ = NSApplication.shared
         let fixture = try SessionIntegrationFixture()
         defer { fixture.cleanUp() }
@@ -221,7 +222,7 @@ final class HUDTitleRenderingTests: XCTestCase {
             XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
             // Use the live observer while the 0.20-second session transition is in flight.
             fixture.model.hudLayoutMode = layout
-            try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+            try await assertCurrentHostedTitle(controller, fixture: fixture)
             XCTAssertTrue(controller.window === window)
             XCTAssertTrue(window.contentView === container)
             hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
@@ -233,12 +234,12 @@ final class HUDTitleRenderingTests: XCTestCase {
             fixture.model.setIncluded(false, sessionID: "layout-b")
             XCTAssertEqual(fixture.model.displayedSession?.id, "layout-c")
             XCTAssertTrue(fixture.model.shouldAnimateDisplayChange, "布局切换后继续保留会话动画决策")
-            try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+            try await assertCurrentHostedTitle(controller, fixture: fixture)
             for id in ["layout-a", "layout-b", "layout-c"] {
                 fixture.model.setIncluded(false, sessionID: id)
             }
             XCTAssertNil(fixture.model.displayedSession)
-            try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
+            try await assertCurrentHostedTitle(controller, fixture: fixture)
             for id in ["layout-a", "layout-b", "layout-c"] {
                 try await fixture.hook(id, event: .interrupt)
                 fixture.model.setIncluded(true, sessionID: id)
@@ -246,36 +247,19 @@ final class HUDTitleRenderingTests: XCTestCase {
         }
     }
 
-    private func assertProductionTitleMatchesFreshPanel(_ controller: HUDPanelController,
-                                                        fixture: SessionIntegrationFixture) async throws {
+    private func assertCurrentHostedTitle(_ controller: HUDPanelController,
+                                          fixture: SessionIntegrationFixture) async throws {
         try await Task.sleep(nanoseconds: 300_000_000)
-        let actual = try captureTitle(controller)
-        // A second production panel is only a reference. Never replace the tested
-        // panel's hosting view, background, or native backing store.
-        let reference = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
-        defer { reference.hide() }
-        reference.show()
-        try await Task.sleep(nanoseconds: 300_000_000)
-        XCTAssertEqual(actual, try captureTitle(reference), "生产承载视图中不应残留默认名称或旧标题")
-    }
-
-    private func captureTitle(_ controller: HUDPanelController) throws -> Data {
         let container = try XCTUnwrap(controller.window?.contentView)
-        let hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
-        hosting.layoutSubtreeIfNeeded()
-        let model = try XCTUnwrap((hosting as? NSHostingView<HUDView>)?.rootView.model)
-        let layout = model.hudLayoutMode
-        let origin: CGFloat = layout.lightsAtLeadingEdge ? 104 : 40 * model.hudIconFraction
-        let rect = layout.isHorizontal
-            ? NSRect(x: origin, y: 0, width: 275, height: 40)
-            : NSRect(x: 0, y: hosting.isFlipped ? origin : hosting.bounds.height - origin - 275,
-                     width: 40, height: 275)
-        let bitmap = try XCTUnwrap(hosting.bitmapImageRepForCachingDisplay(in: rect))
-        hosting.cacheDisplay(in: rect, to: bitmap)
-        return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        let hosts = container.subviews.compactMap { $0 as? NSHostingView<HUDView> }
+        XCTAssertEqual(hosts.count, 1)
+        let hosting = try XCTUnwrap(hosts.first)
+        XCTAssertTrue(hosting.rootView.model === fixture.model)
+        XCTAssertEqual(hosting.rootView.displayedTitle,
+                       fixture.model.displayedSession?.sessionListTitle ?? "Traceflow")
     }
 
-    func testPlaceholderAndSessionTitlesRemainExclusiveAfterRepeatedSwitches() async throws {
+    func testAuxiliaryOffscreenPlaceholderAndSessionTitles() async throws {
         _ = NSApplication.shared
         let fixture = try SessionIntegrationFixture()
         defer { fixture.cleanUp() }

@@ -231,7 +231,11 @@ final class HUDTitleRenderingTests: XCTestCase {
                             vertical: !layout.isHorizontal).motion(from: old, to: new)
             }
             for id in [a, b] { fixture.model.setIncluded(false, sessionID: id) }
-            guard motions.count >= 2 else { continue }
+            guard frames.count >= 2 else { continue }
+            guard motions.count >= 2 else {
+                XCTFail("已有至少两帧位于动画时长内，但未检测到同时进入和退出的标题，不能记为采样跳过")
+                return
+            }
             if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                 XCTAssertTrue(motions.allSatisfy { abs($0.outgoingShift) <= 2 && abs($0.incomingOffset) <= 2 },
                               "减少动态效果只改变透明度，不应位移")
@@ -247,7 +251,7 @@ final class HUDTitleRenderingTests: XCTestCase {
             try await screen.assertSettled(controller, fixture: fixture)
             return
         }
-        throw XCTSkip("三次尝试均无至少两帧可分离的有效标题采样：方向验收不足，不能记为通过")
+        throw XCTSkip("三次尝试均无至少两帧位于实际动画时长内：方向验收不足，不能记为通过")
     }
 
     func testAuxiliaryOffscreenUntitledAndLiteralDefaultTitles() async throws {

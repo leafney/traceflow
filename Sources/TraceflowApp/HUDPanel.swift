@@ -48,7 +48,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private let defaults: UserDefaults
     private let positions: HUDPositionStore
     private weak var model: AppModel?
-    private let hostingView: NSHostingView<HUDView>
+    private var hostingView: NSHostingView<HUDView>
     private let background: HUDBackgroundView
     private var transparency: Int { geometry.transparency }
     private var transparencyObserver: AnyCancellable?
@@ -58,8 +58,6 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private var layout: HUDLayoutMode
     private var geometry: HUDGeometryState
     private var layoutObserver: AnyCancellable?
-    private var layoutRedrawGeneration: UInt64 = 0
-    private var layoutRedrawWork: DispatchWorkItem?
     private var pinObserver: AnyCancellable?
     private var isRestoringPosition = false
     private var isTemporaryPosition = false
@@ -139,7 +137,6 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { nil }
     func show() { restorePosition(); window?.orderFrontRegardless() }
     func hide() {
-        cancelLayoutRedraw()
         window?.orderOut(nil)
         cancelInteraction()
         restorePosition()
@@ -205,13 +202,6 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
 
     func switchLayout(to newLayout: HUDLayoutMode) {
         guard newLayout == model?.hudLayoutMode, newLayout != layout else { return }
-        cancelLayoutRedraw()
-        let generation = layoutRedrawGeneration
-        let oldHostingBounds = hostingView.bounds
-        let oldContainerBounds = window?.contentView?.bounds ?? .zero
-        // Invalidate the old content before a horizontal/vertical resize clips it.
-        hostingView.setNeedsDisplay(oldHostingBounds)
-        window?.contentView?.setNeedsDisplay(oldContainerBounds)
         cancelInteraction()
         positionRetry?.cancel()
         positionRetry = nil
@@ -219,50 +209,19 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         layout = newLayout
         model?.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
         restorePosition()
-        requestLayoutRedraw(expectedLayout: newLayout, generation: generation,
-                            oldHostingBounds: oldHostingBounds, oldContainerBounds: oldContainerBounds)
+        replaceLayoutHostingView()
         if isTemporaryPosition {
             positionRetryDeadline = Date().addingTimeInterval(HUDPositionRetryPolicy.duration)
             schedulePositionRetry()
         }
     }
 
-    private func cancelLayoutRedraw() {
-        layoutRedrawGeneration &+= 1
-        layoutRedrawWork?.cancel()
-        layoutRedrawWork = nil
-    }
-
-    private func invalidateLayoutContent(oldHostingBounds: NSRect, oldContainerBounds: NSRect) {
-        guard let container = window?.contentView else { return }
-        container.needsLayout = true
-        hostingView.needsLayout = true
-        container.layoutSubtreeIfNeeded()
-        let hostDirty = oldHostingBounds.union(hostingView.bounds).intersection(hostingView.bounds)
-        let containerDirty = oldContainerBounds.union(container.bounds).intersection(container.bounds)
-        if !hostDirty.isEmpty { hostingView.setNeedsDisplay(hostDirty) }
-        if !containerDirty.isEmpty { container.setNeedsDisplay(containerDirty) }
-    }
-
-    private func requestLayoutRedraw(expectedLayout: HUDLayoutMode, generation: UInt64,
-                                     oldHostingBounds: NSRect, oldContainerBounds: NSRect) {
-        guard generation == layoutRedrawGeneration, layout == expectedLayout,
-              model?.hudLayoutMode == expectedLayout, window?.contentView != nil else { return }
-        invalidateLayoutContent(oldHostingBounds: oldHostingBounds, oldContainerBounds: oldContainerBounds)
-        // SwiftUI may finish updating after AppKit resizes the existing hosting view.
-        // One main-queue final redraw covers that boundary, including same-size swaps.
-        let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, self.layoutRedrawGeneration == generation,
-                      self.layout == expectedLayout, self.model?.hudLayoutMode == expectedLayout else { return }
-                self.layoutRedrawWork = nil
-                self.invalidateLayoutContent(oldHostingBounds: oldHostingBounds, oldContainerBounds: oldContainerBounds)
-                guard let window = self.window, window.isVisible else { return }
-                window.contentView?.displayIfNeeded()
-            }
-        }
-        layoutRedrawWork = work
-        DispatchQueue.main.async(execute: work)
+    private func replaceLayoutHostingView() {
+        guard let model, let container = window?.contentView as? HUDDragView else { return }
+        let replacement = Self.makeHostingView(model: model, frame: container.bounds)
+        hostingView.removeFromSuperview()
+        container.addSubview(replacement, positioned: .above, relativeTo: background)
+        hostingView = replacement
     }
 
     private func setDisplayFrame(_ frame: NSRect) {
@@ -417,11 +376,16 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         let background = HUDBackgroundView(frame: container.bounds)
         background.autoresizingMask = [.width, .height]
         container.addSubview(background)
-        let hosting = NSHostingView(rootView: HUDView(model: model))
-        hosting.frame = container.bounds
-        hosting.autoresizingMask = [.width, .height]
+        let hosting = makeHostingView(model: model, frame: container.bounds)
         container.addSubview(hosting)
         return (container, hosting, background)
+    }
+
+    private static func makeHostingView(model: AppModel, frame: NSRect) -> NSHostingView<HUDView> {
+        let hosting = NSHostingView(rootView: HUDView(model: model))
+        hosting.frame = frame
+        hosting.autoresizingMask = [.width, .height]
+        return hosting
     }
 }
 

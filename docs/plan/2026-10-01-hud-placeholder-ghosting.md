@@ -1,5 +1,7 @@
 # 保留标题动画的默认名称重影修复规划
 
+> 已由统一根因方案取代：后续调查确认默认名称、标题、图标和状态灯会随布局切换整体残留。本文件中的标题生命周期假设不再作为残影修复依据；显示语义与真实会话动画要求已迁移至 `docs/plan/2026-10-03-hud-layout-content-reset.md`。
+
 Related discussion: [docs/discuss/2026-10-01-hud-placeholder-ghosting.md](../discuss/2026-10-01-hud-placeholder-ghosting.md)
 
 状态：已批准，编码、自动验证及发布包构建完成；屏幕合成与动画观感待人工验收。本轮未安装或部署。

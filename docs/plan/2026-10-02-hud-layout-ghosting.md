@@ -1,5 +1,7 @@
 # 透明浮窗布局切换残影修复方案
 
+> 已证伪并被取代：本方案的强制重绘实现已在最新版安装包的真实屏幕上确认仍会产生持续残影。后续不得继续以本方案作为实现依据。请改用 `docs/plan/2026-10-03-hud-layout-content-reset.md`。
+
 Related discussion: [docs/discuss/2026-10-02-hud-layout-ghosting.md](../discuss/2026-10-02-hud-layout-ghosting.md)
 
 状态：已批准，编码、自动验证与发布包构建完成；实屏残影与动画观感待验收。本轮未安装或部署。

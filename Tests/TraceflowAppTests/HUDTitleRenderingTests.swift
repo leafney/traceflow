@@ -292,10 +292,13 @@ final class HUDTitleRenderingTests: XCTestCase {
         defer { controller.hide() }
         controller.show()
         let window = try XCTUnwrap(controller.window)
-        let container = try XCTUnwrap(window.contentView)
+        var container = try XCTUnwrap(window.contentView as? HUDDragView)
         var hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
+        var background = try XCTUnwrap(container.subviews.first { $0 is HUDBackgroundView })
         for layout in [HUDLayoutMode.horizontalRight, .verticalTop, .verticalBottom, .horizontalLeft] {
+            let previousContainer = container
             let previousHosting = hosting
+            let previousBackground = background
             try await fixture.hook("layout-a", event: .userPromptSubmit)
             try fixture.model.setCustomTitle("123------", sessionID: "layout-a")
             try await Task.sleep(nanoseconds: 300_000_000)
@@ -308,10 +311,14 @@ final class HUDTitleRenderingTests: XCTestCase {
             fixture.model.hudLayoutMode = layout
             try await assertCurrentHostedTitle(controller, fixture: fixture)
             XCTAssertTrue(controller.window === window)
-            XCTAssertTrue(window.contentView === container)
+            container = try XCTUnwrap(window.contentView as? HUDDragView)
             hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
+            background = try XCTUnwrap(container.subviews.first { $0 is HUDBackgroundView })
+            XCTAssertFalse(container === previousContainer)
             XCTAssertFalse(hosting === previousHosting)
-            XCTAssertNil(previousHosting.superview)
+            XCTAssertFalse(background === previousBackground)
+            XCTAssertNil(previousContainer.superview)
+            XCTAssertNil(previousContainer.window)
             XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, "Q")
             try await fixture.hook("layout-c", event: .permissionRequest)
             try fixture.model.setCustomTitle("Traceflow", sessionID: "layout-c")

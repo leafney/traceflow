@@ -49,7 +49,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private let positions: HUDPositionStore
     private weak var model: AppModel?
     private var hostingView: NSHostingView<HUDView>
-    private let background: HUDBackgroundView
+    private var background: HUDBackgroundView
     private var transparency: Int { geometry.transparency }
     private var transparencyObserver: AnyCancellable?
     private var accessibilityObserver: NSObjectProtocol?
@@ -88,24 +88,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         panel.ignoresMouseEvents = geometry.interaction.ignoresMouseEvents
         super.init(window: panel)
         background.update(transparency)
-        content.container.canBeginDrag = { [weak self] in
-            self?.geometry.interaction.canBeginDrag ?? false
-        }
-        content.container.dragStarted = { [weak self] in
-            guard let self else { return }
-            self.finishTransition()
-            guard self.geometry.beginDrag() else { return }
-            self.positionRetry?.cancel()
-            self.positionRetryDeadline = nil
-        }
-        content.container.dragFinished = { [weak self] moved in
-            guard let self, self.geometry.finishDrag(frame: self.window?.frame ?? .zero, moved: moved, layout: self.layout) else { return }
-            if moved {
-                self.savePosition()
-                self.isTemporaryPosition = false
-            } else { self.ensureVisible() }
-            self.updateGeometry(animated: true)
-        }
+        configureInteraction(for: content.container)
         panel.delegate = self
         restorePosition()
         NotificationCenter.default.addObserver(self, selector: #selector(resetPosition), name: .traceflowResetHUDPosition, object: nil)
@@ -131,6 +114,27 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         }
         pinObserver = model.$isHUDPinned.dropFirst().sink { [weak self] pinned in
             self?.setPinned(pinned)
+        }
+    }
+
+    private func configureInteraction(for container: HUDDragView) {
+        container.canBeginDrag = { [weak self] in
+            self?.geometry.interaction.canBeginDrag ?? false
+        }
+        container.dragStarted = { [weak self] in
+            guard let self else { return }
+            self.finishTransition()
+            guard self.geometry.beginDrag() else { return }
+            self.positionRetry?.cancel()
+            self.positionRetryDeadline = nil
+        }
+        container.dragFinished = { [weak self] moved in
+            guard let self, self.geometry.finishDrag(frame: self.window?.frame ?? .zero, moved: moved, layout: self.layout) else { return }
+            if moved {
+                self.savePosition()
+                self.isTemporaryPosition = false
+            } else { self.ensureVisible() }
+            self.updateGeometry(animated: true)
         }
     }
 
@@ -213,19 +217,22 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         layout = newLayout
         model?.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
         restorePosition()
-        replaceLayoutHostingView()
+        replaceLayoutContent()
         if isTemporaryPosition {
             positionRetryDeadline = Date().addingTimeInterval(HUDPositionRetryPolicy.duration)
             schedulePositionRetry()
         }
     }
 
-    private func replaceLayoutHostingView() {
-        guard let model, let container = window?.contentView as? HUDDragView else { return }
-        let replacement = Self.makeHostingView(model: model, frame: container.bounds)
-        hostingView.removeFromSuperview()
-        container.addSubview(replacement, positioned: .above, relativeTo: background)
-        hostingView = replacement
+    private func replaceLayoutContent() {
+        guard let model, let window else { return }
+        let size = window.contentView?.bounds.size ?? window.frame.size
+        let content = Self.makeGlassContent(model: model, size: size)
+        content.background.update(transparency)
+        configureInteraction(for: content.container)
+        window.contentView = content.container
+        hostingView = content.hostingView
+        background = content.background
     }
 
     private func setDisplayFrame(_ frame: NSRect) {

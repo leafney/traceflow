@@ -18,24 +18,23 @@ final class HUDLayoutControllerTests: XCTestCase {
         defer { controller.hide() }
         controller.show()
         let window = try XCTUnwrap(controller.window)
-        let container = try XCTUnwrap(window.contentView)
-        var hosting = try soleHosting(container)
-        let background = try XCTUnwrap(container.subviews.first { $0 is HUDBackgroundView })
+        var parts = try contentParts(window)
         for layout in [HUDLayoutMode.horizontalRight, .verticalTop, .verticalBottom, .horizontalLeft] {
-            let previous = hosting
+            let previous = parts
             fixture.model.hudLayoutMode = layout
             try await Task.sleep(nanoseconds: 300_000_000)
             XCTAssertTrue(controller.window === window)
-            XCTAssertTrue(window.contentView === container)
-            hosting = try soleHosting(container)
-            XCTAssertFalse(hosting === previous)
-            XCTAssertNil(previous.superview)
-            XCTAssertTrue(background.superview === container)
+            parts = try contentParts(window)
+            XCTAssertFalse(parts.container === previous.container)
+            XCTAssertFalse(parts.hosting === previous.hosting)
+            XCTAssertFalse(parts.background === previous.background)
+            XCTAssertNil(previous.container.superview)
+            XCTAssertNil(previous.container.window)
             XCTAssertEqual(window.frame.size, HUDBackgroundAppearance(86).size(layout))
-            XCTAssertEqual(hosting.frame, container.bounds)
+            XCTAssertEqual(parts.hosting.frame, parts.container.bounds)
             XCTAssertNil(fixture.model.displayedSession)
             XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, "Traceflow")
-            try assertLightPositions(hosting, layout: layout)
+            try assertLightPositions(parts.hosting, layout: layout)
         }
     }
 
@@ -129,28 +128,31 @@ final class HUDLayoutControllerTests: XCTestCase {
         defer { controller.hide() }
         controller.show()
         let window = try XCTUnwrap(controller.window)
-        let container = try XCTUnwrap(window.contentView)
-        var hosting = try soleHosting(container)
+        var parts = try contentParts(window)
         for transparency in [86.0, 10, 79, 80, 100] {
             fixture.model.previewTransparency(transparency)
             try await Task.sleep(nanoseconds: 300_000_000)
             for color in [HUDTitleColor.white, .black] {
                 fixture.model.hudTitleColor = color
                 for layout in [HUDLayoutMode.horizontalRight, .verticalTop, .verticalBottom, .horizontalLeft] {
-                    let previous = hosting
+                    let previous = parts
                     fixture.model.hudLayoutMode = layout
                     try await Task.sleep(nanoseconds: 300_000_000)
                     XCTAssertTrue(controller.window === window)
-                    XCTAssertTrue(window.contentView === container)
-                    hosting = try soleHosting(container)
-                    XCTAssertFalse(hosting === previous)
-                    XCTAssertNil(previous.superview)
+                    parts = try contentParts(window)
+                    XCTAssertFalse(parts.container === previous.container)
+                    XCTAssertFalse(parts.hosting === previous.hosting)
+                    XCTAssertFalse(parts.background === previous.background)
+                    XCTAssertNil(previous.container.superview)
                     XCTAssertEqual(window.frame.size, HUDBackgroundAppearance(Int(transparency)).size(layout))
-                    XCTAssertEqual(hosting.frame, container.bounds)
+                    XCTAssertEqual(parts.hosting.frame, parts.container.bounds)
+                    XCTAssertEqual(parts.background.alphaValue,
+                                   HUDBackgroundAppearance(Int(transparency)).backgroundAlpha,
+                                   accuracy: 0.001)
                     XCTAssertEqual(fixture.model.hudIconFraction, transparency >= 80 ? 0 : 1)
                     XCTAssertEqual(fixture.model.hudTitleColor, color)
                     XCTAssertEqual(fixture.model.hudBackgroundTransparency, Int(transparency))
-                    try assertLightPositions(hosting, layout: layout)
+                    try assertLightPositions(parts.hosting, layout: layout)
                 }
             }
         }
@@ -168,10 +170,9 @@ final class HUDLayoutControllerTests: XCTestCase {
         defer { controller.hide() }
         controller.show()
         let window = try XCTUnwrap(controller.window)
-        let container = try XCTUnwrap(window.contentView)
-        var hosting = try soleHosting(container)
+        var parts = try contentParts(window)
         for interleaved in [false, true] {
-            let previous = hosting
+            let previousContainer = parts.container
             // Start each sequence on a different layout from its final selection.
             fixture.model.hudLayoutMode = .horizontalLeft
             controller.switchLayout(to: .horizontalLeft)
@@ -186,20 +187,21 @@ final class HUDLayoutControllerTests: XCTestCase {
             try await Task.sleep(nanoseconds: 300_000_000)
             XCTAssertEqual(fixture.model.hudLayoutMode, .horizontalRight)
             XCTAssertTrue(controller.window === window)
-            hosting = try soleHosting(container)
-            XCTAssertFalse(hosting === previous)
-            XCTAssertNil(previous.superview)
+            parts = try contentParts(window)
+            XCTAssertFalse(parts.container === previousContainer)
+            XCTAssertNil(previousContainer.superview)
             XCTAssertEqual(window.frame.size, NSSize(width: 380, height: 40))
             XCTAssertTrue(window.ignoresMouseEvents)
             XCTAssertTrue(fixture.model.isHUDPinned)
-            try assertLightPositions(hosting, layout: .horizontalRight)
+            try assertLightPositions(parts.hosting, layout: .horizontalRight)
         }
         let frame = window.frame
         let position = HUDPositionStore(defaults: fixture.defaults).loadResult(.horizontalRight)
+        let finalContainer = parts.container
         fixture.model.hudLayoutMode = .horizontalRight
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertEqual(window.frame, frame)
-        XCTAssertTrue(try soleHosting(container) === hosting)
+        XCTAssertTrue(try contentParts(window).container === finalContainer)
         XCTAssertEqual(HUDPositionStore(defaults: fixture.defaults).loadResult(.horizontalRight), position)
     }
 
@@ -214,8 +216,7 @@ final class HUDLayoutControllerTests: XCTestCase {
         defer { controller.hide() }
         controller.show()
         let window = try XCTUnwrap(controller.window)
-        let container = try XCTUnwrap(window.contentView)
-        let initialHosting = try soleHosting(container)
+        let initial = try contentParts(window)
         fixture.model.hudLayoutMode = .horizontalRight
         // A pending layout change must not make the subsequently hidden panel visible.
         await withCheckedContinuation { continuation in
@@ -230,15 +231,16 @@ final class HUDLayoutControllerTests: XCTestCase {
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertFalse(window.isVisible)
         XCTAssertEqual(window.frame.size, NSSize(width: 40, height: 380))
-        let hiddenHosting = try soleHosting(container)
-        XCTAssertFalse(hiddenHosting === initialHosting)
-        XCTAssertNil(initialHosting.superview)
+        let hidden = try contentParts(window)
+        XCTAssertFalse(hidden.container === initial.container)
+        XCTAssertFalse(hidden.hosting === initial.hosting)
+        XCTAssertNil(initial.container.superview)
         controller.show()
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertTrue(controller.window === window)
         XCTAssertTrue(window.isVisible)
-        XCTAssertTrue(try soleHosting(container) === hiddenHosting)
-        try assertLightPositions(soleHosting(try XCTUnwrap(window.contentView)), layout: .verticalBottom)
+        XCTAssertTrue(try contentParts(window).container === hidden.container)
+        try assertLightPositions(contentParts(window).hosting, layout: .verticalBottom)
     }
 
     func testDetachedHostingIsReleasedAndRepeatedLayoutDoesNotReplaceIt() async throws {
@@ -249,15 +251,19 @@ final class HUDLayoutControllerTests: XCTestCase {
         fixture.model.hudLayoutMode = .horizontalLeft
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
-        let container = try XCTUnwrap(controller.window?.contentView)
-        weak var previous: NSHostingView<HUDView>? = try soleHosting(container)
+        let window = try XCTUnwrap(controller.window)
+        weak var previousContainer: HUDDragView? = try contentParts(window).container
+        weak var previousHosting: NSHostingView<HUDView>? = try contentParts(window).hosting
+        weak var previousBackground: HUDBackgroundView? = try contentParts(window).background
         fixture.model.hudLayoutMode = .horizontalRight
         try await Task.sleep(nanoseconds: 300_000_000)
-        XCTAssertNil(previous, "旧承载不能被控制器或异步工作长期持有")
-        let current = try soleHosting(container)
+        XCTAssertNil(previousContainer, "旧内容容器不能被控制器或异步工作长期持有")
+        XCTAssertNil(previousHosting, "旧承载不能被控制器或异步工作长期持有")
+        XCTAssertNil(previousBackground, "旧背景不能被控制器或异步工作长期持有")
+        let current = try contentParts(window)
         fixture.model.hudLayoutMode = .horizontalRight
         try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertTrue(try soleHosting(container) === current)
+        XCTAssertTrue(try contentParts(window).container === current.container)
     }
 
     func testShowImmediatelyAppliesPendingLayoutBeforeDisplayingWindow() async throws {
@@ -270,28 +276,72 @@ final class HUDLayoutControllerTests: XCTestCase {
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
         let window = try XCTUnwrap(controller.window)
-        let container = try XCTUnwrap(window.contentView)
-        let original = try soleHosting(container)
+        let original = try contentParts(window)
         controller.hide()
         fixture.model.hudLayoutMode = .verticalBottom
         // No yield: the observer's queued switch has not run.
         controller.show()
-        let displayed = try soleHosting(container)
+        let displayed = try contentParts(window)
         XCTAssertTrue(window.isVisible)
         XCTAssertEqual(window.frame.size, NSSize(width: 40, height: 380))
-        XCTAssertEqual(displayed.frame, container.bounds)
-        XCTAssertFalse(displayed === original)
-        XCTAssertNil(original.superview)
+        XCTAssertEqual(displayed.hosting.frame, displayed.container.bounds)
+        XCTAssertFalse(displayed.container === original.container)
+        XCTAssertNil(original.container.superview)
         try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertTrue(try soleHosting(container) === displayed,
-                      "迟到的布局回调不能再次替换已显示的承载")
+        XCTAssertTrue(try contentParts(window).container === displayed.container,
+                      "迟到的布局回调不能再次替换已显示的内容容器")
     }
 
+    func testReplacementContentReconnectsInteractionAndTransparency() throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.hudLayoutMode = .horizontalLeft
+        fixture.model.previewTransparency(86)
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        let window = try XCTUnwrap(controller.window)
+        let original = try contentParts(window)
 
-    private func soleHosting(_ container: NSView) throws -> NSHostingView<HUDView> {
+        fixture.model.hudLayoutMode = .verticalTop
+        controller.switchLayout(to: .verticalTop)
+        let replacement = try contentParts(window)
+        XCTAssertFalse(replacement.container === original.container)
+        XCTAssertNotNil(replacement.container.canBeginDrag)
+        XCTAssertNotNil(replacement.container.dragStarted)
+        XCTAssertNotNil(replacement.container.dragFinished)
+        XCTAssertEqual(replacement.container.canBeginDrag?(), true)
+
+        let store = HUDPositionStore(defaults: fixture.defaults)
+        let before = store.loadResult(.verticalTop)
+        replacement.container.dragStarted?()
+        window.setFrameOrigin(NSPoint(x: window.frame.minX + 12, y: window.frame.minY - 12))
+        replacement.container.dragFinished?(true)
+        XCTAssertNotEqual(store.loadResult(.verticalTop), before,
+                          "替换后的容器完成拖动时必须保存新位置")
+
+        fixture.model.previewTransparency(55)
+        XCTAssertEqual(replacement.background.alphaValue,
+                       HUDBackgroundAppearance(55).backgroundAlpha, accuracy: 0.001)
+        XCTAssertEqual(window.hasShadow, true)
+
+        fixture.model.isHUDPinned = true
+        XCTAssertTrue(window.ignoresMouseEvents)
+        XCTAssertEqual(replacement.container.canBeginDrag?(), false)
+        fixture.model.isHUDPinned = false
+        XCTAssertFalse(window.ignoresMouseEvents)
+        XCTAssertEqual(replacement.container.canBeginDrag?(), true)
+    }
+
+    private func contentParts(_ window: NSWindow) throws
+        -> (container: HUDDragView, hosting: NSHostingView<HUDView>, background: HUDBackgroundView) {
+        let container = try XCTUnwrap(window.contentView as? HUDDragView)
         let hosts = container.subviews.compactMap { $0 as? NSHostingView<HUDView> }
+        let backgrounds = container.subviews.compactMap { $0 as? HUDBackgroundView }
         XCTAssertEqual(hosts.count, 1, "同一容器只能有一个HUD承载")
-        return try XCTUnwrap(hosts.first)
+        XCTAssertEqual(backgrounds.count, 1, "同一容器只能有一个HUD背景")
+        return (container, try XCTUnwrap(hosts.first), try XCTUnwrap(backgrounds.first))
     }
 
     private func assertLightPositions(_ hosting: NSView, layout: HUDLayoutMode) throws {

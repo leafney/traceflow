@@ -10,8 +10,8 @@ final class HUDTitleTransitionTests: XCTestCase {
         XCTAssertEqual(HUDTitleTransition.style(shouldAnimate: true, reduceMotion: false), .slide)
     }
 
-    func testReducedMotionAlwaysUsesFade() {
-        XCTAssertEqual(HUDTitleTransition.style(shouldAnimate: false, reduceMotion: true), .fade)
+    func testReducedMotionOnlyFadesAnimatedDecisions() {
+        XCTAssertEqual(HUDTitleTransition.style(shouldAnimate: false, reduceMotion: true), .none)
         XCTAssertEqual(HUDTitleTransition.style(shouldAnimate: true, reduceMotion: true), .fade)
     }
 }

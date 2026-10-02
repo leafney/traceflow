@@ -208,8 +208,9 @@ final class HUDTitleRenderingTests: XCTestCase {
         controller.show()
         let window = try XCTUnwrap(controller.window)
         let container = try XCTUnwrap(window.contentView)
-        let hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
+        var hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
         for layout in [HUDLayoutMode.horizontalRight, .verticalTop, .verticalBottom, .horizontalLeft] {
+            let previousHosting = hosting
             try await fixture.hook("layout-a", event: .userPromptSubmit)
             try fixture.model.setCustomTitle("123------", sessionID: "layout-a")
             try await Task.sleep(nanoseconds: 300_000_000)
@@ -223,7 +224,9 @@ final class HUDTitleRenderingTests: XCTestCase {
             try await assertProductionTitleMatchesFreshPanel(controller, fixture: fixture)
             XCTAssertTrue(controller.window === window)
             XCTAssertTrue(window.contentView === container)
-            XCTAssertTrue(hosting.superview === container)
+            hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
+            XCTAssertFalse(hosting === previousHosting)
+            XCTAssertNil(previousHosting.superview)
             XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, "Q")
             try await fixture.hook("layout-c", event: .permissionRequest)
             try fixture.model.setCustomTitle("Traceflow", sessionID: "layout-c")

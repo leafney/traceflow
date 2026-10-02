@@ -73,24 +73,18 @@ struct HUDView: View {
                     // Snapshot the text so outgoing content never reads a new
                     // placeholder from the model during a transition.
                     titleContent(session.sessionListTitle, vertical: vertical)
-                        .compositingGroup()
                         .id(session.id)
                         .transition(titleTransition(vertical: vertical))
                 }
                 .transaction { $0.animation = titleAnimation }
-                .transition(.identity)
             } else {
                 // The default name is static and cannot become an outgoing session.
                 titleContent("Traceflow", vertical: vertical)
-                    .transition(.identity)
             }
         }
         .frame(width: vertical ? HUDMetrics.shortAxis : HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2,
                height: vertical ? HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2 : HUDMetrics.shortAxis)
         .clipped()
-        // Only suppress cross-branch animation. The session container above
-        // restores its own animation; disablesAnimations would suppress it too.
-        .transaction { $0.animation = nil }
     }
 
     @ViewBuilder

@@ -80,6 +80,7 @@ final class HUDTitleRenderingTests: XCTestCase {
             fixture.model.autoEnableNewSessions = true
             fixture.model.hudTitleColor = color == .white ? .black : .white
             fixture.model.previewTransparency(86)
+            try screen.preparePositions(defaults: fixture.defaults)
             let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
             defer { controller.hide() }
             controller.show()
@@ -90,15 +91,23 @@ final class HUDTitleRenderingTests: XCTestCase {
                 try fixture.model.setCustomTitle("首个会话", sessionID: "screen-a")
                 XCTAssertFalse(fixture.model.shouldAnimateDisplayChange)
                 try await screen.assertSettled(controller, fixture: fixture,
-                                               regions: [screenTitleRegion(layout)], compareFull: false)
+                                               regions: [screenContentRegion(layout)], compareFull: false)
                 try await fixture.hook("screen-b", event: .permissionRequest)
                 XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
                 // Replace the hosting tree while the title transition is active.
                 fixture.model.hudLayoutMode = layout == .horizontalLeft ? .horizontalRight : .horizontalLeft
                 await Task.yield()
                 try await screen.assertSettled(controller, fixture: fixture,
-                                               regions: [screenTitleRegion(fixture.model.hudLayoutMode)],
+                                               regions: [screenContentRegion(fixture.model.hudLayoutMode)],
                                                compareFull: false)
+                // The content band includes the old light positions but excludes
+                // the legitimate current animated lights.
+                for title in ["布局切换后很长的会话标题用于检查旧字形", "Q"] {
+                    try fixture.model.setCustomTitle(title, sessionID: "screen-b")
+                    try await screen.assertSettled(controller, fixture: fixture,
+                                                   regions: [screenContentRegion(fixture.model.hudLayoutMode)],
+                                                   compareFull: false)
+                }
                 for id in ["screen-a", "screen-b"] { fixture.model.setIncluded(false, sessionID: id) }
                 XCTAssertNil(fixture.model.displayedSession)
                 XCTAssertFalse(fixture.model.shouldAnimateDisplayChange)
@@ -111,63 +120,134 @@ final class HUDTitleRenderingTests: XCTestCase {
         }
     }
 
-    private func screenTitleRegion(_ layout: HUDLayoutMode) -> NSRect {
-        let offset: CGFloat = layout.lightsAtLeadingEdge ? 104 : 0
+    private func screenContentRegion(_ layout: HUDLayoutMode) -> NSRect {
+        // Exclude an additional eight points next to the current lights: their
+        // animated glow can extend beyond the nominal 104-point light band.
+        let offset: CGFloat = layout.lightsAtLeadingEdge ? 112 : 0
         return layout.isHorizontal
-            ? NSRect(x: offset + 7, y: 2, width: 260, height: 36)
-            : NSRect(x: 2, y: offset + 7, width: 36, height: 260)
+            ? NSRect(x: offset, y: 0, width: 268, height: 40)
+            : NSRect(x: 0, y: offset, width: 40, height: 268)
     }
 
-    func testScreenAnimationUsesOnlySamplesCapturedInsideTransition() async throws {
+    func testInkAnalysisDistinguishesBothDirectionsAndFade() throws {
+        var oldValues = [Double](repeating: 0, count: 40 * 120)
+        var newValues = oldValues
+        for long in 6..<100 {
+            for cross in 16..<23 { oldValues[long * 40 + cross] = 1 }
+        }
+        for long in 7..<10 {
+            for cross in 19..<22 { newValues[long * 40 + cross] = 1 }
+        }
+        let old = HUDTitleInk(values: oldValues)
+        let new = HUDTitleInk(values: newValues)
+        for shift in [-7, 7, 0] {
+            var middle = [Double](repeating: 0, count: 40 * 120)
+            for long in 0..<120 {
+                for cross in 0..<40 {
+                    let fromOld = cross - shift
+                    let fromNew = cross + shift
+                    if (0..<40).contains(fromOld) {
+                        middle[long * 40 + cross] += 0.6 * oldValues[long * 40 + fromOld]
+                    }
+                    if (0..<40).contains(fromNew) {
+                        middle[long * 40 + cross] += 0.4 * newValues[long * 40 + fromNew]
+                    }
+                }
+            }
+            let result = try XCTUnwrap(HUDTitleInk(values: middle).motion(from: old, to: new))
+            XCTAssertEqual(result.outgoingShift, shift)
+            XCTAssertEqual(result.incomingOffset, Double(-shift), accuracy: 0.1)
+            XCTAssertEqual(result.outgoingOpacity, 0.6, accuracy: 0.01)
+            XCTAssertEqual(result.incomingOpacity, 0.4, accuracy: 0.01)
+        }
+        XCTAssertNil(HUDTitleInk(values: [Double](repeating: 0, count: 40 * 120))
+            .motion(from: old, to: new), "无有效字形不能被判断为已验证动画")
+    }
+
+    func testScreenAnimationDirectionsBeforeAndAfterHostingReplacement() async throws {
         _ = NSApplication.shared
         let screen = try HUDScreenFixture(color: .white)
         defer { screen.close() }
         for layout in [HUDLayoutMode.horizontalLeft, .verticalTop] {
-            var verified = false
-            for _ in 0..<3 {
-                let fixture = try SessionIntegrationFixture()
-                defer { fixture.cleanUp() }
-                fixture.model.autoEnableNewSessions = true
-                fixture.model.hudLayoutMode = layout
-                fixture.model.hudTitleColor = .black
-                fixture.model.previewTransparency(100)
-                let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
-                defer { controller.hide() }
-                controller.show()
-                let panel = try XCTUnwrap(controller.window)
-                screen.place(panel)
-                try await fixture.hook("animation-a", event: .userPromptSubmit)
-                try fixture.model.setCustomTitle("MMMMMM", sessionID: "animation-a")
-                try await fixture.hook("animation-b", event: .userPromptSubmit)
-                try fixture.model.setCustomTitle("MMMMMM", sessionID: "animation-b")
-                try await Task.sleep(nanoseconds: 300_000_000)
-                let before = try await screen.capture(panel, fixture: fixture)
-                let began = ProcessInfo.processInfo.systemUptime
-                try await fixture.hook("animation-b", event: .permissionRequest)
-                XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
-                try await Task.sleep(nanoseconds: 20_000_000)
-                let sampleStart = ProcessInfo.processInfo.systemUptime - began
-                let middle = try await screen.capture(panel, fixture: fixture)
-                let sampleEnd = ProcessInfo.processInfo.systemUptime - began
-                // Process launch cannot be assumed instantaneous. The whole capture
-                // interval must be inside the product transition, or retry it.
-                let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-                    ? 0.15 : HUDTitleTransition.maximumDuration
-                guard sampleStart > 0, sampleEnd < duration else { continue }
-                try await Task.sleep(nanoseconds: 300_000_000)
-                let settled = try await screen.capture(panel, fixture: fixture)
-                let title = screenTitleRegion(layout)
-                before.assertSimilar(to: settled, points: panel.frame.size, regions: [title], compareFull: false)
-                XCTAssertGreaterThan(middle.changedFraction(comparedTo: settled, points: panel.frame.size,
-                                                           region: title), 0.005,
-                                     "已确认采样位于动画内，相同标题应有位移或透明度变化")
-                verified = true
-                break
-            }
-            if !verified {
-                throw XCTSkip("三次采样均未落在零点二秒动画内：采样不足，动画方向与观感待人工验收")
-            }
+            let fixture = try SessionIntegrationFixture()
+            defer { fixture.cleanUp() }
+            fixture.model.autoEnableNewSessions = true
+            fixture.model.hudLayoutMode = layout
+            fixture.model.hudTitleColor = .black
+            fixture.model.previewTransparency(100)
+            try screen.preparePositions(defaults: fixture.defaults)
+            let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+            defer { controller.hide() }
+            controller.show()
+            let panel = try XCTUnwrap(controller.window)
+            try await assertScreenTitleDirection(controller, screen: screen, fixture: fixture,
+                                                  prefix: "before")
+            // A new hosting tree must preserve the next real session animation.
+            fixture.model.hudLayoutMode = layout.isHorizontal ? .horizontalRight : .verticalBottom
+            try await Task.sleep(nanoseconds: 50_000_000)
+            try await assertScreenTitleDirection(controller, screen: screen, fixture: fixture,
+                                                  prefix: "after")
+            XCTAssertTrue(controller.window === panel)
         }
+    }
+
+    private func assertScreenTitleDirection(_ controller: HUDPanelController, screen: HUDScreenFixture,
+                                           fixture: SessionIntegrationFixture, prefix: String) async throws {
+        let panel = try XCTUnwrap(controller.window)
+        let layout = fixture.model.hudLayoutMode
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? 0.15 : HUDTitleTransition.maximumDuration
+        for attempt in 0..<3 {
+            let a = "\(prefix)-\(attempt)-a"
+            let b = "\(prefix)-\(attempt)-b"
+            try await fixture.hook(a, event: .userPromptSubmit)
+            try fixture.model.setCustomTitle("MMMMMMMMMMMM", sessionID: a)
+            try await fixture.hook(b, event: .userPromptSubmit)
+            try fixture.model.setCustomTitle("I", sessionID: b)
+            try await Task.sleep(nanoseconds: 300_000_000)
+            let before = try screen.captureNow(panel)
+            let began = ProcessInfo.processInfo.systemUptime
+            try await fixture.hook(b, event: .permissionRequest)
+            XCTAssertEqual(fixture.model.displayedSession?.id, b)
+            XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
+            var frames: [HUDScreenPixels] = []
+            for target in [0.035, 0.070, 0.105, 0.135] {
+                let wait = target - (ProcessInfo.processInfo.systemUptime - began)
+                if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+                let start = ProcessInfo.processInfo.systemUptime - began
+                let pixels = try screen.captureNow(panel)
+                let end = ProcessInfo.processInfo.systemUptime - began
+                if start > 0, end < duration { frames.append(pixels) }
+            }
+            try await Task.sleep(nanoseconds: 300_000_000)
+            let settled = try screen.captureNow(panel)
+            let origin: CGFloat = layout.lightsAtLeadingEdge ? 104 : 0
+            let old = HUDTitleInk(pixels: before, points: panel.frame.size,
+                                  origin: origin, vertical: !layout.isHorizontal)
+            let new = HUDTitleInk(pixels: settled, points: panel.frame.size,
+                                  origin: origin, vertical: !layout.isHorizontal)
+            let motions = frames.compactMap {
+                HUDTitleInk(pixels: $0, points: panel.frame.size, origin: origin,
+                            vertical: !layout.isHorizontal).motion(from: old, to: new)
+            }
+            for id in [a, b] { fixture.model.setIncluded(false, sessionID: id) }
+            guard motions.count >= 2 else { continue }
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                XCTAssertTrue(motions.allSatisfy { abs($0.outgoingShift) <= 2 && abs($0.incomingOffset) <= 2 },
+                              "减少动态效果只改变透明度，不应位移")
+                XCTAssertTrue(motions.contains { $0.outgoingOpacity < 0.95 && $0.incomingOpacity < 0.95 },
+                              "过渡中应同时存在旧标题淡出和新标题淡入")
+            } else {
+                let sign = layout.isHorizontal ? -1 : 1
+                XCTAssertTrue(motions.contains { $0.outgoingShift * sign > 1 },
+                              "横向旧标题向上退出；纵向旧标题向右退出")
+                XCTAssertTrue(motions.contains { $0.incomingOffset * Double(sign) < -1 },
+                              "横向新标题从下进入；纵向新标题从左进入")
+            }
+            try await screen.assertSettled(controller, fixture: fixture)
+            return
+        }
+        throw XCTSkip("三次尝试均无至少两帧可分离的有效标题采样：方向验收不足，不能记为通过")
     }
 
     func testAuxiliaryOffscreenUntitledAndLiteralDefaultTitles() async throws {

@@ -49,6 +49,7 @@ final class HUDLayoutControllerTests: XCTestCase {
             fixture.model.hudLayoutMode = .horizontalLeft
             fixture.model.hudTitleColor = backdropColor == .white ? .black : .white
             fixture.model.previewTransparency(86)
+            try screen.preparePositions(defaults: fixture.defaults)
             let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
             defer { controller.hide() }
             controller.show()
@@ -66,14 +67,13 @@ final class HUDLayoutControllerTests: XCTestCase {
             try await screen.assertSettled(controller, fixture: fixture)
             controller.hide()
             fixture.model.hudLayoutMode = .verticalBottom
-            try await Task.sleep(nanoseconds: 50_000_000)
             XCTAssertFalse(controller.window!.isVisible)
             controller.show()
             try await screen.assertSettled(controller, fixture: fixture)
             // Same-screen movement: the capture helper preserves this new origin.
-            screen.place(controller.window!)
-            controller.window!.setFrameOrigin(NSPoint(x: screen.origin.x + 10, y: screen.origin.y + 10))
-            try await screen.assertSettled(controller, fixture: fixture, placePanel: false)
+            let oldOrigin = controller.window!.frame.origin
+            controller.window!.setFrameOrigin(NSPoint(x: oldOrigin.x + 10, y: oldOrigin.y + 10))
+            try await screen.assertSettled(controller, fixture: fixture)
         }
     }
 
@@ -103,12 +103,15 @@ final class HUDLayoutControllerTests: XCTestCase {
         fixture.model.previewTransparency(86)
         fixture.model.hudTitleColor = .black
         fixture.model.hudLayoutMode = .horizontalLeft
+        try first.preparePositions(defaults: fixture.defaults)
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
         controller.show()
         let window = try XCTUnwrap(controller.window)
         try await first.assertSettled(controller, fixture: fixture)
+        second.place(window)
         try await second.assertSettled(controller, fixture: fixture)
+        first.place(window)
         try await first.assertSettled(controller, fixture: fixture)
         fixture.model.hudLayoutMode = .horizontalRight
         await Task.yield()
@@ -255,6 +258,33 @@ final class HUDLayoutControllerTests: XCTestCase {
         fixture.model.hudLayoutMode = .horizontalRight
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertTrue(try soleHosting(container) === current)
+    }
+
+    func testShowImmediatelyAppliesPendingLayoutBeforeDisplayingWindow() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.hudLayoutMode = .horizontalLeft
+        fixture.model.previewTransparency(86)
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        let window = try XCTUnwrap(controller.window)
+        let container = try XCTUnwrap(window.contentView)
+        let original = try soleHosting(container)
+        controller.hide()
+        fixture.model.hudLayoutMode = .verticalBottom
+        // No yield: the observer's queued switch has not run.
+        controller.show()
+        let displayed = try soleHosting(container)
+        XCTAssertTrue(window.isVisible)
+        XCTAssertEqual(window.frame.size, NSSize(width: 40, height: 380))
+        XCTAssertEqual(displayed.frame, container.bounds)
+        XCTAssertFalse(displayed === original)
+        XCTAssertNil(original.superview)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(try soleHosting(container) === displayed,
+                      "迟到的布局回调不能再次替换已显示的承载")
     }
 
 

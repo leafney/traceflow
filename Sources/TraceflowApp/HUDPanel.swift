@@ -111,7 +111,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(resetPosition), name: .traceflowResetHUDPosition, object: nil)
         layoutObserver = model.$hudLayoutMode.dropFirst().sink { [weak self] newLayout in
             // Published emits before the stored value changes. Defer so the
-            // layout and redraw observe the new layout mode, not the old one.
+            // replacement observes the committed layout mode, not the old one.
             DispatchQueue.main.async { self?.switchLayout(to: newLayout) }
         }
         transparencyObserver = model.$hudBackgroundTransparency.dropFirst().sink { [weak self] value in
@@ -135,7 +135,11 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     required init?(coder: NSCoder) { nil }
-    func show() { restorePosition(); window?.orderFrontRegardless() }
+    func show() {
+        if let latest = model?.hudLayoutMode { switchLayout(to: latest) }
+        restorePosition()
+        window?.orderFrontRegardless()
+    }
     func hide() {
         window?.orderOut(nil)
         cancelInteraction()

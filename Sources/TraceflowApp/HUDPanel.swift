@@ -232,7 +232,8 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         configureInteraction(for: replacement.container)
         replacement.panel.delegate = self
 
-        // Never overlap two visible HUD surfaces, even during synchronous handoff.
+        // Automatic order-in/out animation is disabled by the panel factory.
+        // Retire the old surface before showing the replacement.
         previous.orderOut(nil)
         previous.delegate = nil
         if let container = previous.contentView as? HUDDragView { disconnectInteraction(for: container) }
@@ -412,6 +413,9 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         panel.hasShadow = transparency < 100
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
+        // orderOut's logical visibility alone cannot rule out an animated
+        // outgoing surface. Layout replacement must not cross-fade windows.
+        panel.animationBehavior = .none
         panel.ignoresMouseEvents = ignoresMouseEvents
         panel.contentView = content.container
         return HUDPanelAssembly(panel: panel, container: content.container,

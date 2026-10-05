@@ -3,8 +3,16 @@ import TraceflowCore
 
 struct HUDView: View {
     @ObservedObject var model: AppModel
+    // Layout belongs to this window's lifetime. The model can publish the next
+    // layout before the controller retires this hosting tree on the main queue.
+    let layout: HUDLayoutMode
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+
+    init(model: AppModel) {
+        _model = ObservedObject(wrappedValue: model)
+        layout = model.hudLayoutMode
+    }
 
     // displayTitle includes the project prefix; the HUD shows only the session.
     var displayedTitle: String {
@@ -13,13 +21,13 @@ struct HUDView: View {
 
     var body: some View {
         Group {
-            switch model.hudLayoutMode {
+            switch layout {
             case .horizontalLeft, .horizontalRight: horizontalContent
             case .verticalTop, .verticalBottom: verticalContent
             }
         }
-        .frame(width: model.hudLayoutMode.isHorizontal ? (380 + 40 * model.hudIconFraction) : HUDMetrics.shortAxis,
-               height: model.hudLayoutMode.isHorizontal ? HUDMetrics.shortAxis : (380 + 40 * model.hudIconFraction))
+        .frame(width: layout.isHorizontal ? (380 + 40 * model.hudIconFraction) : HUDMetrics.shortAxis,
+               height: layout.isHorizontal ? HUDMetrics.shortAxis : (380 + 40 * model.hudIconFraction))
         .overlay(Capsule().stroke(.white.opacity((colorScheme == .dark ? 0.16 : 0.24) * HUDBackgroundAppearance(model.hudBackgroundTransparency).backgroundAlpha), lineWidth: 0.5))
         .contentShape(Capsule())
         .accessibilityElement(children: .ignore)
@@ -28,7 +36,7 @@ struct HUDView: View {
 
     private var horizontalContent: some View {
         HStack(spacing: 0) {
-            ForEach(model.hudLayoutMode.regions) { region in
+            ForEach(layout.regions) { region in
                 switch region {
                 case .lights:
                     HStack(spacing: HUDMetrics.lightSpacing) { lights }
@@ -45,7 +53,7 @@ struct HUDView: View {
 
     private var verticalContent: some View {
         VStack(spacing: 0) {
-            ForEach(model.hudLayoutMode.regions) { region in
+            ForEach(layout.regions) { region in
                 switch region {
                 case .lights:
                     VStack(spacing: HUDMetrics.lightSpacing) { lights }

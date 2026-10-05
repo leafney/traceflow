@@ -6,6 +6,49 @@ import TraceflowCore
 
 @MainActor
 final class HUDLayoutControllerTests: XCTestCase {
+    func testPendingLayoutKeepsOldHostedGeometryUntilPanelReplacement() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.hudLayoutMode = .horizontalLeft
+        fixture.model.previewTransparency(86)
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        controller.show()
+        for target in [HUDLayoutMode.horizontalRight, .verticalTop, .verticalBottom, .horizontalLeft] {
+            let oldPanel = try XCTUnwrap(controller.window)
+            let oldHosting = try contentParts(oldPanel).hosting
+            let previousLayout = oldHosting.rootView.layout
+            let oldRenderer = ImageRenderer(content: oldHosting.rootView)
+            let previousImage = try XCTUnwrap(oldRenderer.cgImage)
+            XCTAssertEqual(oldPanel.animationBehavior, .none)
+
+            fixture.model.hudLayoutMode = target
+            // No yield: the model has changed but the queued replacement has
+            // not run. This is the gap that settled-frame tests did not cover.
+            XCTAssertTrue(controller.window === oldPanel)
+            XCTAssertEqual(oldHosting.rootView.layout, previousLayout)
+            let pending = try XCTUnwrap(ImageRenderer(content: oldHosting.rootView).cgImage)
+            let previousPixels = try HUDScreenPixels(image: previousImage)
+            let pendingPixels = try HUDScreenPixels(image: pending)
+            XCTAssertEqual(pendingPixels.width, previousPixels.width)
+            XCTAssertEqual(pendingPixels.height, previousPixels.height)
+            XCTAssertEqual(pendingPixels.bytes, previousPixels.bytes,
+                           "旧承载在交接前不能先绘制目标布局")
+
+            controller.switchLayout(to: target)
+            let current = try XCTUnwrap(controller.window)
+            XCTAssertFalse(current === oldPanel)
+            assertRetired(oldPanel)
+            XCTAssertEqual(try contentParts(current).hosting.rootView.layout, target)
+            XCTAssertEqual(current.animationBehavior, .none)
+            XCTAssertEqual(current.frame.size, HUDBackgroundAppearance(86).size(target))
+            await Task.yield()
+            XCTAssertTrue(controller.window === current, "迟到观察回调不能再次替换窗口")
+        }
+    }
+
     func testPanelReplacementSwitchesLeftRightAndBackThroughObserver() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
@@ -406,6 +449,7 @@ final class HUDLayoutControllerTests: XCTestCase {
             XCTAssertEqual(current.backgroundColor, .clear)
             XCTAssertFalse(current.hidesOnDeactivate)
             XCTAssertFalse(current.isMovableByWindowBackground)
+            XCTAssertEqual(current.animationBehavior, .none)
             XCTAssertEqual(current.hasShadow, fixture.model.hudBackgroundTransparency < 100)
             XCTAssertEqual(HUDLayoutMode.allCases.map { store.loadResult($0) }, stored)
         }

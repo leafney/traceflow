@@ -6,7 +6,7 @@ import TraceflowCore
 
 @MainActor
 final class HUDLayoutControllerTests: XCTestCase {
-    func testSamePanelSwitchesLeftRightAndBackThroughObserver() async throws {
+    func testPanelReplacementSwitchesLeftRightAndBackThroughObserver() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
         let fixture = try SessionIntegrationFixture()
@@ -17,13 +17,18 @@ final class HUDLayoutControllerTests: XCTestCase {
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
         controller.show()
-        let window = try XCTUnwrap(controller.window)
+        var window = try XCTUnwrap(controller.window)
         var parts = try contentParts(window)
         for layout in [HUDLayoutMode.horizontalRight, .verticalTop, .verticalBottom, .horizontalLeft] {
             let previous = parts
+            let previousWindow = window
+            let previousNumber = window.windowNumber
             fixture.model.hudLayoutMode = layout
             try await Task.sleep(nanoseconds: 300_000_000)
-            XCTAssertTrue(controller.window === window)
+            window = try XCTUnwrap(controller.window)
+            assertRetired(previousWindow)
+            XCTAssertFalse(window === previousWindow)
+            XCTAssertNotEqual(window.windowNumber, previousNumber)
             parts = try contentParts(window)
             XCTAssertFalse(parts.container === previous.container)
             XCTAssertFalse(parts.hosting === previous.hosting)
@@ -38,7 +43,7 @@ final class HUDLayoutControllerTests: XCTestCase {
         }
     }
 
-    func testScreenCompositeAfterSamePanelLayoutSwitch() async throws {
+    func testScreenCompositeAfterPanelReplacementLayoutSwitch() async throws {
         _ = NSApplication.shared
         for backdropColor in [NSColor.white, .darkGray] {
             let screen = try HUDScreenFixture(color: backdropColor)
@@ -115,10 +120,11 @@ final class HUDLayoutControllerTests: XCTestCase {
         fixture.model.hudLayoutMode = .horizontalRight
         await Task.yield()
         try await first.assertSettled(controller, fixture: fixture)
-        XCTAssertTrue(controller.window === window)
+        XCTAssertFalse(controller.window === window)
+        assertRetired(window)
     }
 
-    func testSamePanelCrossOrientationAtTransparencyBoundary() async throws {
+    func testPanelReplacementCrossOrientationAtTransparencyBoundary() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
         let fixture = try SessionIntegrationFixture()
@@ -127,7 +133,7 @@ final class HUDLayoutControllerTests: XCTestCase {
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
         controller.show()
-        let window = try XCTUnwrap(controller.window)
+        var window = try XCTUnwrap(controller.window)
         var parts = try contentParts(window)
         for transparency in [86.0, 10, 79, 80, 100] {
             fixture.model.previewTransparency(transparency)
@@ -136,9 +142,14 @@ final class HUDLayoutControllerTests: XCTestCase {
                 fixture.model.hudTitleColor = color
                 for layout in [HUDLayoutMode.horizontalRight, .verticalTop, .verticalBottom, .horizontalLeft] {
                     let previous = parts
+                    let previousWindow = window
+                    let previousNumber = window.windowNumber
                     fixture.model.hudLayoutMode = layout
                     try await Task.sleep(nanoseconds: 300_000_000)
-                    XCTAssertTrue(controller.window === window)
+                    window = try XCTUnwrap(controller.window)
+                    assertRetired(previousWindow)
+                    XCTAssertFalse(window === previousWindow)
+                    XCTAssertNotEqual(window.windowNumber, previousNumber)
                     parts = try contentParts(window)
                     XCTAssertFalse(parts.container === previous.container)
                     XCTAssertFalse(parts.hosting === previous.hosting)
@@ -169,9 +180,10 @@ final class HUDLayoutControllerTests: XCTestCase {
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
         controller.show()
-        let window = try XCTUnwrap(controller.window)
+        var window = try XCTUnwrap(controller.window)
         var parts = try contentParts(window)
         for interleaved in [false, true] {
+            let previousWindow = window
             let previousContainer = parts.container
             // Start each sequence on a different layout from its final selection.
             fixture.model.hudLayoutMode = .horizontalLeft
@@ -186,7 +198,9 @@ final class HUDLayoutControllerTests: XCTestCase {
             fixture.model.hudLayoutMode = .horizontalRight
             try await Task.sleep(nanoseconds: 300_000_000)
             XCTAssertEqual(fixture.model.hudLayoutMode, .horizontalRight)
-            XCTAssertTrue(controller.window === window)
+            window = try XCTUnwrap(controller.window)
+            XCTAssertFalse(window === previousWindow)
+            assertRetired(previousWindow)
             parts = try contentParts(window)
             XCTAssertFalse(parts.container === previousContainer)
             XCTAssertNil(previousContainer.superview)
@@ -200,12 +214,15 @@ final class HUDLayoutControllerTests: XCTestCase {
         let finalContainer = parts.container
         fixture.model.hudLayoutMode = .horizontalRight
         try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(controller.window === window)
+        controller.switchLayout(to: .verticalTop)
+        XCTAssertTrue(controller.window === window, "过期回调不能创建窗口")
         XCTAssertEqual(window.frame, frame)
         XCTAssertTrue(try contentParts(window).container === finalContainer)
         XCTAssertEqual(HUDPositionStore(defaults: fixture.defaults).loadResult(.horizontalRight), position)
     }
 
-    func testHiddenLayoutReplacesContentWithoutShowingPanel() async throws {
+    func testHiddenLayoutReplacesPanelWithoutShowingPanel() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
         let fixture = try SessionIntegrationFixture()
@@ -215,7 +232,7 @@ final class HUDLayoutControllerTests: XCTestCase {
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
         controller.show()
-        let window = try XCTUnwrap(controller.window)
+        var window = try XCTUnwrap(controller.window)
         let initial = try contentParts(window)
         fixture.model.hudLayoutMode = .horizontalRight
         // A pending layout change must not make the subsequently hidden panel visible.
@@ -230,6 +247,10 @@ final class HUDLayoutControllerTests: XCTestCase {
         fixture.model.hudLayoutMode = .verticalBottom
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertFalse(window.isVisible)
+        let previousWindow = window
+        window = try XCTUnwrap(controller.window)
+        assertRetired(previousWindow)
+        XCTAssertFalse(window.isVisible)
         XCTAssertEqual(window.frame.size, NSSize(width: 40, height: 380))
         let hidden = try contentParts(window)
         XCTAssertFalse(hidden.container === initial.container)
@@ -243,7 +264,7 @@ final class HUDLayoutControllerTests: XCTestCase {
         try assertLightPositions(contentParts(window).hosting, layout: .verticalBottom)
     }
 
-    func testDetachedHostingIsReleasedAndRepeatedLayoutDoesNotReplaceIt() async throws {
+    func testDetachedPanelAndContentAreReleasedAndRepeatedLayoutDoesNotReplaceIt() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
         let fixture = try SessionIntegrationFixture()
@@ -251,19 +272,20 @@ final class HUDLayoutControllerTests: XCTestCase {
         fixture.model.hudLayoutMode = .horizontalLeft
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
-        let window = try XCTUnwrap(controller.window)
-        weak var previousContainer: HUDDragView? = try contentParts(window).container
-        weak var previousHosting: NSHostingView<HUDView>? = try contentParts(window).hosting
-        weak var previousBackground: HUDBackgroundView? = try contentParts(window).background
+        weak var previousWindow = controller.window
+        weak var previousContainer: HUDDragView? = try contentParts(try XCTUnwrap(controller.window)).container
+        weak var previousHosting: NSHostingView<HUDView>? = try contentParts(try XCTUnwrap(controller.window)).hosting
+        weak var previousBackground: HUDBackgroundView? = try contentParts(try XCTUnwrap(controller.window)).background
         fixture.model.hudLayoutMode = .horizontalRight
         try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNil(previousWindow, "旧面板必须释放")
         XCTAssertNil(previousContainer, "旧内容容器不能被控制器或异步工作长期持有")
         XCTAssertNil(previousHosting, "旧承载不能被控制器或异步工作长期持有")
         XCTAssertNil(previousBackground, "旧背景不能被控制器或异步工作长期持有")
-        let current = try contentParts(window)
+        let current = try contentParts(try XCTUnwrap(controller.window))
         fixture.model.hudLayoutMode = .horizontalRight
         try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertTrue(try contentParts(window).container === current.container)
+        XCTAssertTrue(try contentParts(try XCTUnwrap(controller.window)).container === current.container)
     }
 
     func testShowImmediatelyAppliesPendingLayoutBeforeDisplayingWindow() async throws {
@@ -275,12 +297,16 @@ final class HUDLayoutControllerTests: XCTestCase {
         fixture.model.previewTransparency(86)
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
-        let window = try XCTUnwrap(controller.window)
+        var window = try XCTUnwrap(controller.window)
         let original = try contentParts(window)
         controller.hide()
         fixture.model.hudLayoutMode = .verticalBottom
         // No yield: the observer's queued switch has not run.
         controller.show()
+        let previousWindow = window
+        window = try XCTUnwrap(controller.window)
+        XCTAssertFalse(window === previousWindow)
+        assertRetired(previousWindow)
         let displayed = try contentParts(window)
         XCTAssertTrue(window.isVisible)
         XCTAssertEqual(window.frame.size, NSSize(width: 40, height: 380))
@@ -292,7 +318,7 @@ final class HUDLayoutControllerTests: XCTestCase {
                       "迟到的布局回调不能再次替换已显示的内容容器")
     }
 
-    func testReplacementContentReconnectsInteractionAndTransparency() throws {
+    func testReplacementPanelReconnectsInteractionAndTransparency() throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
         let fixture = try SessionIntegrationFixture()
@@ -301,11 +327,18 @@ final class HUDLayoutControllerTests: XCTestCase {
         fixture.model.previewTransparency(86)
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
-        let window = try XCTUnwrap(controller.window)
+        var window = try XCTUnwrap(controller.window)
         let original = try contentParts(window)
 
         fixture.model.hudLayoutMode = .verticalTop
         controller.switchLayout(to: .verticalTop)
+        let previousWindow = window
+        window = try XCTUnwrap(controller.window)
+        XCTAssertFalse(window === previousWindow)
+        assertRetired(previousWindow)
+        XCTAssertNil(original.container.canBeginDrag)
+        XCTAssertNil(original.container.dragStarted)
+        XCTAssertNil(original.container.dragFinished)
         let replacement = try contentParts(window)
         XCTAssertFalse(replacement.container === original.container)
         XCTAssertNotNil(replacement.container.canBeginDrag)
@@ -332,6 +365,56 @@ final class HUDLayoutControllerTests: XCTestCase {
         fixture.model.isHUDPinned = false
         XCTAssertFalse(window.ignoresMouseEvents)
         XCTAssertEqual(replacement.container.canBeginDrag?(), true)
+    }
+
+    func testReplacementPreservesWindowPolicyFocusAndStoredPositions() throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        // Initialize layout records before comparing: seeding remains intentional.
+        for layout in HUDLayoutMode.allCases {
+            fixture.model.hudLayoutMode = layout
+            controller.switchLayout(to: layout)
+        }
+        let store = HUDPositionStore(defaults: fixture.defaults)
+        let stored = HUDLayoutMode.allCases.map { store.loadResult($0) }
+        let settings = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 200, height: 100),
+                                styleMask: [.titled], backing: .buffered, defer: false)
+        settings.isReleasedWhenClosed = false
+        settings.makeKeyAndOrderFront(nil)
+        defer { settings.close() }
+        let keyWindow = NSApp.keyWindow
+        controller.show()
+        for layout in HUDLayoutMode.allCases {
+            let old = try XCTUnwrap(controller.window)
+            fixture.model.hudLayoutMode = layout
+            controller.switchLayout(to: layout)
+            let current = try XCTUnwrap(controller.window)
+            XCTAssertFalse(old === current)
+            assertRetired(old)
+            XCTAssertTrue(current.isVisible)
+            XCTAssertFalse(current.canBecomeKey)
+            XCTAssertFalse(current.canBecomeMain)
+            XCTAssertTrue(NSApp.keyWindow === keyWindow)
+            XCTAssertEqual(NSApp.windows.filter { $0 is NonActivatingPanel && $0.isVisible }.count, 1)
+            XCTAssertEqual(current.level, .floating)
+            XCTAssertEqual(current.collectionBehavior, [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary])
+            XCTAssertFalse(current.isOpaque)
+            XCTAssertEqual(current.backgroundColor, .clear)
+            XCTAssertFalse(current.hidesOnDeactivate)
+            XCTAssertFalse(current.isMovableByWindowBackground)
+            XCTAssertEqual(current.hasShadow, fixture.model.hudBackgroundTransparency < 100)
+            XCTAssertEqual(HUDLayoutMode.allCases.map { store.loadResult($0) }, stored)
+        }
+    }
+
+    private func assertRetired(_ window: NSWindow, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(window.isVisible, file: file, line: line)
+        XCTAssertNil(window.contentView, file: file, line: line)
+        XCTAssertNil(window.delegate, file: file, line: line)
     }
 
     private func contentParts(_ window: NSWindow) throws

@@ -200,30 +200,51 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     func switchLayout(to newLayout: HUDLayoutMode) {
-        guard newLayout == model?.hudLayoutMode, newLayout != layout else { return }
+        guard model != nil, window != nil, newLayout == model?.hudLayoutMode, newLayout != layout else { return }
         cancelInteraction()
         positionRetry?.cancel()
         positionRetry = nil
         positionRetryDeadline = nil
         layout = newLayout
         model?.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
-        restorePosition()
-        replaceLayoutContent()
+        replacePanelForCurrentLayout()
         if isTemporaryPosition {
             positionRetryDeadline = Date().addingTimeInterval(HUDPositionRetryPolicy.duration)
             schedulePositionRetry()
         }
     }
 
-    private func replaceLayoutContent() {
-        guard let model, let window else { return }
-        let size = window.contentView?.bounds.size ?? window.frame.size
-        let content = Self.makeGlassContent(model: model, size: size)
-        content.background.update(transparency)
-        configureInteraction(for: content.container)
-        window.contentView = content.container
-        hostingView = content.hostingView
-        background = content.background
+    private func disconnectInteraction(for container: HUDDragView) {
+        container.cancelDrag()
+        container.canBeginDrag = nil
+        container.dragStarted = nil
+        container.dragFinished = nil
+    }
+
+    private func replacePanelForCurrentLayout() {
+        guard let model, let previous = window else { return }
+        let wasVisible = previous.isVisible
+        let size = HUDBackgroundAppearance(transparency).size(layout)
+        let replacement = Self.makePanelAssembly(model: model, size: size,
+                                                 transparency: transparency,
+                                                 ignoresMouseEvents: geometry.interaction.ignoresMouseEvents)
+        replacement.panel.setFrameOrigin(previous.frame.origin)
+        configureInteraction(for: replacement.container)
+        replacement.panel.delegate = self
+
+        // Never overlap two visible HUD surfaces, even during synchronous handoff.
+        previous.orderOut(nil)
+        previous.delegate = nil
+        if let container = previous.contentView as? HUDDragView { disconnectInteraction(for: container) }
+        window = replacement.panel
+        hostingView = replacement.hostingView
+        background = replacement.background
+        // Retain a reference for the new shape even when no screen is available.
+        geometry.restoreReference(HUDBackgroundAppearance.referenceFrame(replacement.panel.frame, layout: layout))
+        restorePosition()
+        previous.contentView = nil
+        previous.close()
+        if wasVisible { replacement.panel.orderFrontRegardless() }
     }
 
     private func setDisplayFrame(_ frame: NSRect) {

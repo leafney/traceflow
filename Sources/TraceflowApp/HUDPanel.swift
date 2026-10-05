@@ -72,22 +72,13 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         layout = model.hudLayoutMode
         geometry = HUDGeometryState(transparency: model.hudBackgroundTransparency, pinned: model.isHUDPinned)
         let size = HUDBackgroundAppearance(model.hudBackgroundTransparency).size(layout)
-        let panel = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        let content = Self.makeGlassContent(model: model, size: size)
+        let content = Self.makePanelAssembly(model: model, size: size,
+                                             transparency: model.hudBackgroundTransparency,
+                                             ignoresMouseEvents: geometry.interaction.ignoresMouseEvents)
         hostingView = content.hostingView
         background = content.background
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = model.hudBackgroundTransparency < 100
-        // Our explicit mouse-up path commits the drag; avoid a second AppKit drag.
-        panel.isMovableByWindowBackground = false
-        panel.hidesOnDeactivate = false
-        panel.contentView = content.container
-        panel.ignoresMouseEvents = geometry.interaction.ignoresMouseEvents
+        let panel = content.panel
         super.init(window: panel)
-        background.update(transparency)
         configureInteraction(for: content.container)
         panel.delegate = self
         restorePosition()
@@ -378,6 +369,32 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         }
         guard let index = HUDPositionGeometry.matchingScreen(for: position, among: identities) else { return nil }
         return screens[index]
+    }
+
+    private struct HUDPanelAssembly {
+        let panel: NonActivatingPanel
+        let container: HUDDragView
+        let hostingView: NSHostingView<HUDView>
+        let background: HUDBackgroundView
+    }
+
+    private static func makePanelAssembly(model: AppModel, size: NSSize,
+                                          transparency: Int, ignoresMouseEvents: Bool) -> HUDPanelAssembly {
+        let panel = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: size),
+                                      styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let content = makeGlassContent(model: model, size: size)
+        content.background.update(transparency)
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = transparency < 100
+        panel.isMovableByWindowBackground = false
+        panel.hidesOnDeactivate = false
+        panel.ignoresMouseEvents = ignoresMouseEvents
+        panel.contentView = content.container
+        return HUDPanelAssembly(panel: panel, container: content.container,
+                                hostingView: content.hostingView, background: content.background)
     }
 
     private static func makeGlassContent(model: AppModel, size: NSSize) -> (container: HUDDragView, hostingView: NSHostingView<HUDView>, background: HUDBackgroundView) {

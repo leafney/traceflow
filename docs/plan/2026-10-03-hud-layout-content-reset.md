@@ -1051,3 +1051,7 @@ private struct HUDPanelAssembly {
 新增交接间隙测试：模型改变后、不让出主线程，旧窗口身份及旧布局必须保持；离屏绘制旧承载的尺寸和像素必须一致。执行替换后检查新布局、窗口尺寸及无自动窗口动画，迟到观察回调不得再次替换。横向左右、纵向上下与横纵互换均覆盖。此测试属于复杂状态交接的辅助验证，不能代替实屏瞬间画面。
 
 定向验证：`swift test --filter 'HUDLayoutControllerTests|HUDTitleRenderingTests|HUDMenuTests'` 共 27 项，23 项通过、4 项因缺少录屏权限跳过、0 项失败。新测试验证窗口交接间隙；原有测试验证标题动态更新、会话动画决策、固定、透明度、位置及窗口释放回归。
+
+修正提交：`3a502fa`。全量 `swift test` 共 221 项，217 项通过、4 项因录屏权限跳过、0 项失败。`sh scripts/build-app.sh`、`codesign --verify --deep --strict dist/Traceflow.app` 和 `git diff --check` 均通过。新发布包为 `dist/Traceflow.app`，未安装；主程序 SHA-256：`19e059b54846c534345a29479ec965c2bd7890fffc3426cd4077f1cb04e43aef`。
+
+下一次实屏复测重点为点击切换到稳定画面之间的过程，覆盖左右、上下及横纵互换。无会话、存在活动会话和真实会话标题过渡期间分别观察，确认没有整套布局短暂叠加。稳定截图、离屏像素和无动画属性检查都不能代替该验收；目前瞬间重影修正仅完成代码与自动验证，尚未收到用户实屏结果。

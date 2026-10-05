@@ -100,8 +100,6 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             guard let self else { return }
             self.geometry.setTransparency(value)
             self.background.update(value)
-            self.window?.hasShadow = value < 100
-            self.window?.invalidateShadow()
             if !self.geometry.interaction.isDragging { self.updateGeometry(animated: true) }
         }
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -454,7 +452,8 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = transparency < 100
+        // Avoid system shadows derived from translucent HUD content.
+        panel.hasShadow = false
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
         // orderOut's logical visibility alone cannot rule out an animated

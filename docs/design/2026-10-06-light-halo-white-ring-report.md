@@ -2,9 +2,26 @@
 
 关联规格：`docs/plan/2026-10-06-light-halo-white-ring.md`。
 
+## 本轮第二阶段：已批准的无系统阴影候选
+
+用户批准PRD的J节并授权连续实施。生产修改仅在 `HUDPanel.swift`：创建面板时 `hasShadow = false`，删除透明度观察回调中重新开启阴影及 `invalidateShadow()` 的两行。初始与替换窗口共用同一工厂。灯体颜色、透明度、呼吸、光晕、毛玻璃、布局及标题窗口交接均未修改；不新增其他投影。
+
+回归更新已有两处窗口阴影断言，新增四布局下 `[10,55,86,99,100,86,10]` 透明度序列，确认同一窗口不会重新开启阴影、背景alpha正常更新；默认名称、首会话与恢复默认的窗口分别检查阴影关闭。
+
+- `swift build`：退出码0。
+- 定向 `swift test --filter 'HUDLightRenderingTests|HUDLightAnimationTests|HUDLightDiagnosticTests|HUDLayoutControllerTests|HUDPlaceholderHandoffTests|HUDTitleRenderingTests'`：退出码0，51项，45通过、6因缺少屏幕录制权限跳过、0失败。
+- `git diff --check`：通过。
+- 原生静态384组合无分隔带；连续离屏最大平均差异0。色彩诊断值与修改前相同，符合本轮没有改变灯体绘制的范围。
+
+首次定向测试沙箱执行退出码1，原因为Swift缓存不可访问，未进入有效测试；按授权使用沙箱外缓存重新运行获得上述结果。日志：`/private/tmp/traceflow-shadow-targeted.log`。
+
+已在覆盖dist前保留旧包至 `/private/tmp/traceflow-halo-shadow-baseline/Traceflow.app`。旧包与用户当前安装版主程序哈希相同：`6512f4e4397d721f50903b24f8334782aad463647b15ab57ba8c7d531eca5f5f`。未自动安装或更改正在运行的应用。
+
+第二阶段代码与自动回归完成，不等于阴影候选已被实屏证明有效。白圈、灰黑圈及完整视觉回归仍待验收；下一阶段继续全量测试与构建候选包。
+
 ## 最新：用户录屏与窗口阴影遗漏
 
-本节补充此前结论，不将新假设记录为已验证根因。生产代码仍未修改。
+本节为实施前的录屏诊断记录，不将新假设记录为已验证根因。当时生产代码尚未修改；最新生产状态见顶部实施记录。
 
 已读取工作区 `ggg5.gif`：377×55像素、114帧、约16.98秒。使用FFmpeg解码完整合成帧，未把GIF局部更新矩形当成原始截图。逐帧PNG、完整RGB和环带CSV输出至 `/private/tmp/traceflow-gif-frames/`。GIF有颜色量化，以下RGB仅用于说明可辨认暗圈，不作为原生渲染验收阈值。原始附件未纳入Git；只保留不含标题的灯区裁剪。
 

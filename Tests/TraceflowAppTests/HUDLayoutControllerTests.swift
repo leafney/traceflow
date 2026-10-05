@@ -400,7 +400,7 @@ final class HUDLayoutControllerTests: XCTestCase {
         fixture.model.previewTransparency(55)
         XCTAssertEqual(replacement.background.alphaValue,
                        HUDBackgroundAppearance(55).backgroundAlpha, accuracy: 0.001)
-        XCTAssertEqual(window.hasShadow, true)
+        XCTAssertFalse(window.hasShadow)
 
         fixture.model.isHUDPinned = true
         XCTAssertTrue(window.ignoresMouseEvents)
@@ -450,8 +450,32 @@ final class HUDLayoutControllerTests: XCTestCase {
             XCTAssertFalse(current.hidesOnDeactivate)
             XCTAssertFalse(current.isMovableByWindowBackground)
             XCTAssertEqual(current.animationBehavior, .none)
-            XCTAssertEqual(current.hasShadow, fixture.model.hudBackgroundTransparency < 100)
+            XCTAssertFalse(current.hasShadow)
             XCTAssertEqual(HUDLayoutMode.allCases.map { store.loadResult($0) }, stored)
+        }
+    }
+
+    func testTransparencyChangesNeverEnableSystemShadow() throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        for layout in HUDLayoutMode.allCases {
+            let fixture = try SessionIntegrationFixture()
+            defer { fixture.cleanUp() }
+            fixture.model.hudLayoutMode = layout
+            fixture.model.previewTransparency(86)
+            let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+            defer { controller.hide() }
+            let original = try XCTUnwrap(controller.window)
+            XCTAssertFalse(original.hasShadow)
+
+            for value in [10, 55, 86, 99, 100, 86, 10] {
+                fixture.model.previewTransparency(Double(value))
+                let current = try XCTUnwrap(controller.window)
+                XCTAssertTrue(current === original, "透明度更新不能替换窗口")
+                XCTAssertFalse(current.hasShadow, "透明度\(value)不能重新开启系统阴影")
+                XCTAssertEqual(try contentParts(current).background.alphaValue,
+                               HUDBackgroundAppearance(value).backgroundAlpha, accuracy: 0.001)
+            }
         }
     }
 

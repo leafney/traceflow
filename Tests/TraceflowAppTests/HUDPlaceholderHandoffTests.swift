@@ -20,6 +20,7 @@ final class HUDPlaceholderHandoffTests: XCTestCase {
             defer { controller.hide() }
             controller.show()
             let original = try XCTUnwrap(controller.window)
+            XCTAssertFalse(original.hasShadow)
             original.setFrameOrigin(NSPoint(x: screen.visibleFrame.midX - 100,
                                             y: screen.visibleFrame.midY - 100))
             let frame = original.frame
@@ -30,6 +31,7 @@ final class HUDPlaceholderHandoffTests: XCTestCase {
             try fixture.model.setCustomTitle("-     -     -", sessionID: "first")
             try await fixture.waitUntil { controller.window !== original }
             let sessionPanel = try XCTUnwrap(controller.window)
+            XCTAssertFalse(sessionPanel.hasShadow)
             assertRetired(original)
             XCTAssertEqual(placeholder.displayedTitle, "Traceflow")
             XCTAssertEqual(try hosted(sessionPanel).displayedTitle, "-     -     -")
@@ -46,6 +48,7 @@ final class HUDPlaceholderHandoffTests: XCTestCase {
             try await fixture.waitUntil { controller.window !== sessionPanel }
             assertRetired(sessionPanel)
             let restored = try XCTUnwrap(controller.window)
+            XCTAssertFalse(restored.hasShadow)
             XCTAssertEqual(try hosted(restored).displayedTitle, "Traceflow")
             XCTAssertEqual(restored.frame, frame)
             XCTAssertEqual(HUDLayoutMode.allCases.map { store.loadResult($0) }, records)

@@ -3,6 +3,7 @@ import TraceflowCore
 
 struct HUDView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var presentation: HUDWindowPresentation
     // Layout belongs to this window's lifetime. The model can publish the next
     // layout before the controller retires this hosting tree on the main queue.
     let layout: HUDLayoutMode
@@ -10,13 +11,19 @@ struct HUDView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     init(model: AppModel) {
+        self.init(model: model, layout: model.hudLayoutMode,
+                  presentation: HUDWindowPresentation(model: model))
+    }
+
+    init(model: AppModel, layout: HUDLayoutMode, presentation: HUDWindowPresentation) {
         _model = ObservedObject(wrappedValue: model)
-        layout = model.hudLayoutMode
+        _presentation = ObservedObject(wrappedValue: presentation)
+        self.layout = layout
     }
 
     // displayTitle includes the project prefix; the HUD shows only the session.
     var displayedTitle: String {
-        model.displayedSession?.sessionListTitle ?? "Traceflow"
+        presentation.displayedSession?.sessionListTitle ?? "Traceflow"
     }
 
     var body: some View {
@@ -76,7 +83,7 @@ struct HUDView: View {
     @ViewBuilder
     private func titleRegion(vertical: Bool) -> some View {
         Group {
-            if let session = model.displayedSession {
+            if let session = presentation.displayedSession {
                 ZStack {
                     // Snapshot the text so outgoing content never reads a new
                     // placeholder from the model during a transition.
@@ -113,7 +120,7 @@ struct HUDView: View {
     private var accessibilityDescription: String {
         let title = displayedTitle
         let state: String
-        switch model.displayedSession?.state {
+        switch presentation.displayedSession?.state {
         case .attention: state = "需要处理"
         case .running: state = "运行中"
         case .completed: state = "已完成"
@@ -124,9 +131,9 @@ struct HUDView: View {
     }
 
     @ViewBuilder private var lights: some View {
-        StatusLight(kind: .attention, active: model.displayedSession?.state == .attention, glow: model.hudGlowMode, reduceMotion: reduceMotion)
-        StatusLight(kind: .completed, active: model.displayedSession?.state == .completed, glow: model.hudGlowMode, reduceMotion: reduceMotion)
-        StatusLight(kind: .running, active: model.displayedSession?.state == .running, glow: model.hudGlowMode, reduceMotion: reduceMotion)
+        StatusLight(kind: .attention, active: presentation.displayedSession?.state == .attention, glow: model.hudGlowMode, reduceMotion: reduceMotion)
+        StatusLight(kind: .completed, active: presentation.displayedSession?.state == .completed, glow: model.hudGlowMode, reduceMotion: reduceMotion)
+        StatusLight(kind: .running, active: presentation.displayedSession?.state == .running, glow: model.hudGlowMode, reduceMotion: reduceMotion)
     }
 
     private func titleTransition(vertical: Bool) -> AnyTransition {

@@ -112,6 +112,60 @@ final class HUDLightDiagnosticTests: XCTestCase {
         XCTAssertEqual(total, 384)
     }
 
+    func testExportEdgeColorAndDirectBackgroundComparison() throws {
+        try FileManager.default.createDirectory(at: HUDLightDiagnosticFixture.directory, withIntermediateDirectories: true)
+        var csv = "kind,mode,q,scale,edgeColorError,directVsManualDifference\n"
+        var maxColorError = 0.0, maxBackgroundDifference = 0.0
+        for kind in kinds {
+            for mode in modes {
+                for scale in [1.0, 2] {
+                    for q in HUDLightDiagnosticFixture.progresses {
+                        let frame = StatusLightFrame(kind: kind, active: true, glow: mode,
+                                                     visual: HUDLightDiagnosticFixture.visual(q))
+                        let (_, transparent) = try HUDLightDiagnosticFixture.render(frame, scale: scale)
+                        let (_, opaque) = try HUDLightDiagnosticFixture.render(
+                            frame.frame(width: 64, height: 64).background(Color(red: 0.85, green: 0.85, blue: 0.85)), scale: scale)
+                        let center = transparent.rgba(x: transparent.size / 2, y: transparent.size / 2, background: nil)
+                        let color = center.prefix(3).map { $0 / center[3] }
+                        var colorError = 0.0, sum = 0.0, count = 0
+                        for y in 0..<transparent.size {
+                            for x in 0..<transparent.size {
+                                let radius = hypot((Double(x) + 0.5) / scale - 32, (Double(y) + 0.5) / scale - 32)
+                                guard radius >= 9, radius <= 24 else { continue }
+                                let sample = transparent.rgba(x: x, y: y, background: nil)
+                                // Premultiplied expected hue from this same frame's
+                                // center. Low-alpha color quantization is not divided.
+                                if sample[3] >= 0.02 {
+                                    for channel in 0..<3 {
+                                        colorError = max(colorError, abs(sample[channel] - color[channel] * sample[3]))
+                                    }
+                                }
+                                let manual = transparent.rgba(x: x, y: y, background: 0.85)
+                                let direct = opaque.rgba(x: x, y: y, background: nil)
+                                for channel in 0..<3 {
+                                    sum += abs(manual[channel] - direct[channel])
+                                    count += 1
+                                }
+                            }
+                        }
+                        let difference = sum / Double(max(1, count))
+                        maxColorError = max(maxColorError, colorError)
+                        maxBackgroundDifference = max(maxBackgroundDifference, difference)
+                        csv += "\(kind),\(mode),\(q),\(scale),\(colorError),\(difference)\n"
+                        if kind == .running, q == 0.05, scale == 2 {
+                            let (image, _) = try HUDLightDiagnosticFixture.render(
+                                frame.frame(width: 64, height: 64).background(Color(red: 0.85, green: 0.85, blue: 0.85)), scale: scale)
+                            try HUDLightDiagnosticFixture.save(image, name: "direct-gray-\(mode)-q005")
+                        }
+                    }
+                }
+            }
+        }
+        try csv.write(to: HUDLightDiagnosticFixture.directory.appendingPathComponent("edge-colors.csv"), atomically: true, encoding: .utf8)
+        print("边缘颜色诊断：最大预乘色差=\(maxColorError)，直接背景与手工合成最大平均差异=\(maxBackgroundDifference)")
+        XCTAssertTrue(maxColorError.isFinite && maxBackgroundDifference.isFinite)
+    }
+
     func testPersistentOffscreenSequenceAgainstFreshFrames() async throws {
         try FileManager.default.createDirectory(at: HUDLightDiagnosticFixture.directory, withIntermediateDirectories: true)
         var csv = "kind,mode,scale,cycle,index,q,completed,meanDifference,outerDifference\n"

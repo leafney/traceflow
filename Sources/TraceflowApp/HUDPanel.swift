@@ -64,7 +64,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private var isRestoringPosition = false
     private var isTemporaryPosition = false
     private var positionRetry: DispatchWorkItem?
-    private var positionRetryDeadline: Date?
+    private(set) var positionRetryDeadline: Date?
     var isRetryingPosition: Bool { positionRetry != nil && positionRetryDeadline != nil }
 
     init(model: AppModel, defaults: UserDefaults = .standard) {

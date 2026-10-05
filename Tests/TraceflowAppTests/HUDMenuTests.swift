@@ -6,6 +6,46 @@ import TraceflowCore
 
 @MainActor
 final class HUDMenuTests: XCTestCase {
+    func testInstalledMenuUsesCurrentWindowAfterTitleModeHandoff() async throws {
+        _ = NSApplication.shared
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.autoEnableNewSessions = true
+        let delegate = AppDelegate(model: fixture.model, defaults: fixture.defaults)
+        delegate.installHUDControls()
+        defer {
+            delegate.panelController?.hide()
+            if let item = delegate.statusItem { NSStatusBar.system.removeStatusItem(item) }
+        }
+        let menu = try XCTUnwrap(delegate.statusItem?.menu)
+        fixture.model.isHUDVisible = true
+        fixture.model.isHUDPinned = true
+        let original = try XCTUnwrap(delegate.panelController?.window)
+        try await fixture.hook("first", event: .userPromptSubmit)
+        try await fixture.waitUntil { delegate.panelController?.window !== original }
+        let session = try XCTUnwrap(delegate.panelController?.window)
+        menu.update()
+        XCTAssertFalse(original.isVisible)
+        XCTAssertNil(original.contentView)
+        XCTAssertTrue(session.isVisible)
+        XCTAssertTrue(session.ignoresMouseEvents)
+        XCTAssertEqual(menu.items[0].state, .on)
+        XCTAssertEqual(menu.items[1].state, .on)
+        fixture.model.setIncluded(false, sessionID: "first")
+        try await fixture.waitUntil { delegate.panelController?.window !== session }
+        let placeholder = try XCTUnwrap(delegate.panelController?.window)
+        menu.performActionForItem(at: 0)
+        menu.performActionForItem(at: 1)
+        // Menu observers intentionally refresh after Published commits; wait
+        // for that existing asynchronous path rather than asserting in willSet.
+        try await fixture.waitUntil { menu.items[0].state == .off && menu.items[1].state == .off }
+        menu.update()
+        XCTAssertFalse(placeholder.isVisible)
+        XCTAssertFalse(placeholder.ignoresMouseEvents)
+        XCTAssertEqual(menu.items[0].state, .off)
+        XCTAssertEqual(menu.items[1].state, .off)
+    }
+
     func testInstalledStatusMenuTracksSettingsAndWindow() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要桌面屏幕") }

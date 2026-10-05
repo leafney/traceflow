@@ -113,9 +113,9 @@ final class HUDLayoutControllerTests: XCTestCase {
         controller.show()
         let window = try XCTUnwrap(controller.window)
         try await first.assertSettled(controller, fixture: fixture)
-        second.place(window)
+        try second.place(controller)
         try await second.assertSettled(controller, fixture: fixture)
-        first.place(window)
+        try first.place(controller)
         try await first.assertSettled(controller, fixture: fixture)
         fixture.model.hudLayoutMode = .horizontalRight
         await Task.yield()

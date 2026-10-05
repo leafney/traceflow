@@ -48,7 +48,8 @@ final class HUDScreenFixture {
         }
     }
 
-    func place(_ panel: NSWindow) {
+    func place(_ controller: HUDPanelController) throws {
+        let panel = try XCTUnwrap(controller.window)
         panel.setFrameOrigin(origin)
         panel.orderFrontRegardless()
     }
@@ -73,19 +74,21 @@ final class HUDScreenFixture {
     func assertSettled(_ controller: HUDPanelController, fixture: SessionIntegrationFixture,
                        regions: [NSRect] = [], compareFull: Bool = true,
                        file: StaticString = #filePath, line: UInt = #line) async throws {
-        let panel = try XCTUnwrap(controller.window)
         let began = ProcessInfo.processInfo.systemUptime
         try await Task.sleep(nanoseconds: 300_000_000)
+        let panel = try XCTUnwrap(controller.window)
         let testedFrame = panel.frame
         XCTAssertTrue(backdrop.frame.contains(testedFrame), "必须在事件前准备受控背景，不能在采样前移动浮窗", file: file, line: line)
-        let early = try await capture(panel, fixture: fixture)
+        let early = try await capture(try XCTUnwrap(controller.window), fixture: fixture)
         let remaining = max(0, 1 - (ProcessInfo.processInfo.systemUptime - began))
         try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
-        let persistent = try await capture(panel, fixture: fixture)
-        let frame = panel.frame
+        let current = try XCTUnwrap(controller.window)
+        XCTAssertTrue(current === panel, "稳定采样期间不能替换窗口", file: file, line: line)
+        let persistent = try await capture(current, fixture: fixture)
+        let frame = current.frame
         XCTAssertEqual(frame, testedFrame, "稳定帧采样期间窗口不能移动", file: file, line: line)
         panel.orderOut(nil)
-        defer { panel.setFrame(frame, display: false); panel.orderFrontRegardless() }
+        defer { controller.window?.orderFrontRegardless() }
         let reference = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { reference.hide() }
         let clean = try XCTUnwrap(reference.window)

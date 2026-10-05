@@ -164,7 +164,7 @@ final class HUDTitleRenderingTests: XCTestCase {
             .motion(from: old, to: new), "无有效字形不能被判断为已验证动画")
     }
 
-    func testScreenAnimationDirectionsBeforeAndAfterHostingReplacement() async throws {
+    func testScreenAnimationDirectionsBeforeAndAfterPanelReplacement() async throws {
         _ = NSApplication.shared
         let screen = try HUDScreenFixture(color: .white)
         defer { screen.close() }
@@ -187,7 +187,7 @@ final class HUDTitleRenderingTests: XCTestCase {
             try await Task.sleep(nanoseconds: 50_000_000)
             try await assertScreenTitleDirection(controller, screen: screen, fixture: fixture,
                                                   prefix: "after")
-            XCTAssertTrue(controller.window === panel)
+            XCTAssertFalse(controller.window === panel)
         }
     }
 
@@ -205,7 +205,7 @@ final class HUDTitleRenderingTests: XCTestCase {
             try await fixture.hook(b, event: .userPromptSubmit)
             try fixture.model.setCustomTitle("I", sessionID: b)
             try await Task.sleep(nanoseconds: 300_000_000)
-            let before = try screen.captureNow(panel)
+            let before = try screen.captureNow(try XCTUnwrap(controller.window))
             let began = ProcessInfo.processInfo.systemUptime
             try await fixture.hook(b, event: .permissionRequest)
             XCTAssertEqual(fixture.model.displayedSession?.id, b)
@@ -215,12 +215,12 @@ final class HUDTitleRenderingTests: XCTestCase {
                 let wait = target - (ProcessInfo.processInfo.systemUptime - began)
                 if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
                 let start = ProcessInfo.processInfo.systemUptime - began
-                let pixels = try screen.captureNow(panel)
+                let pixels = try screen.captureNow(try XCTUnwrap(controller.window))
                 let end = ProcessInfo.processInfo.systemUptime - began
                 if start > 0, end < duration { frames.append(pixels) }
             }
             try await Task.sleep(nanoseconds: 300_000_000)
-            let settled = try screen.captureNow(panel)
+            let settled = try screen.captureNow(try XCTUnwrap(controller.window))
             let origin: CGFloat = layout.lightsAtLeadingEdge ? 104 : 0
             let old = HUDTitleInk(pixels: before, points: panel.frame.size,
                                   origin: origin, vertical: !layout.isHorizontal)
@@ -280,7 +280,7 @@ final class HUDTitleRenderingTests: XCTestCase {
         }
     }
 
-    func testSamePanelLayoutChangesDuringSessionTransitionsKeepCurrentTitle() async throws {
+    func testPanelReplacementLayoutChangesDuringSessionTransitionsKeepCurrentTitle() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
         let fixture = try SessionIntegrationFixture()
@@ -291,11 +291,12 @@ final class HUDTitleRenderingTests: XCTestCase {
         let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
         defer { controller.hide() }
         controller.show()
-        let window = try XCTUnwrap(controller.window)
+        var window = try XCTUnwrap(controller.window)
         var container = try XCTUnwrap(window.contentView as? HUDDragView)
         var hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
         var background = try XCTUnwrap(container.subviews.first { $0 is HUDBackgroundView })
         for layout in [HUDLayoutMode.horizontalRight, .verticalTop, .verticalBottom, .horizontalLeft] {
+            let previousWindow = window
             let previousContainer = container
             let previousHosting = hosting
             let previousBackground = background
@@ -310,7 +311,10 @@ final class HUDTitleRenderingTests: XCTestCase {
             // Use the live observer while the 0.20-second session transition is in flight.
             fixture.model.hudLayoutMode = layout
             try await assertCurrentHostedTitle(controller, fixture: fixture)
-            XCTAssertTrue(controller.window === window)
+            window = try XCTUnwrap(controller.window)
+            XCTAssertFalse(window === previousWindow)
+            XCTAssertFalse(previousWindow.isVisible)
+            XCTAssertNil(previousWindow.contentView)
             container = try XCTUnwrap(window.contentView as? HUDDragView)
             hosting = try XCTUnwrap(container.subviews.first { $0 is NSHostingView<HUDView> })
             background = try XCTUnwrap(container.subviews.first { $0 is HUDBackgroundView })

@@ -21,7 +21,7 @@ final class HUDMenuTests: XCTestCase {
             if let item = delegate.statusItem { NSStatusBar.system.removeStatusItem(item) }
         }
         let menu = try XCTUnwrap(delegate.statusItem?.menu)
-        let panel = try XCTUnwrap(delegate.panelController?.window)
+        var panel = try XCTUnwrap(delegate.panelController?.window)
         menu.update()
         XCTAssertEqual(menu.items[0].state, .off)
         XCTAssertFalse(panel.isVisible)
@@ -33,6 +33,11 @@ final class HUDMenuTests: XCTestCase {
         let updated = expectation(description: "窗口布局和菜单状态已更新")
         DispatchQueue.main.async { updated.fulfill() }
         await fulfillment(of: [updated], timeout: 2)
+        let previousPanel = panel
+        panel = try XCTUnwrap(delegate.panelController?.window)
+        XCTAssertFalse(panel === previousPanel)
+        XCTAssertFalse(previousPanel.isVisible)
+        XCTAssertNil(previousPanel.contentView)
         menu.update()
         XCTAssertTrue(panel.isVisible)
         XCTAssertTrue(panel.ignoresMouseEvents)

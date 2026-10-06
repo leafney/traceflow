@@ -52,6 +52,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private var background: HUDBackgroundView
     private var transparency: Int { geometry.transparency }
     private var transparencyObserver: AnyCancellable?
+    private var iconVisibilityObserver: AnyCancellable?
     private var accessibilityObserver: NSObjectProtocol?
     private var transitionTimer: Timer?
     private var transitionTarget: NSRect?
@@ -73,8 +74,9 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         positions = HUDPositionStore(defaults: defaults)
         layout = model.hudLayoutMode
         appliedDisplayMode = HUDWindowDisplayMode(session: model.displayedSession)
-        geometry = HUDGeometryState(transparency: model.hudBackgroundTransparency, pinned: model.isHUDPinned)
-        let size = HUDBackgroundAppearance(model.hudBackgroundTransparency).size(layout)
+        geometry = HUDGeometryState(transparency: model.hudBackgroundTransparency, pinned: model.isHUDPinned,
+                                    iconVisibilityMode: model.hudIconVisibilityMode)
+        let size = geometry.appearance.size(layout)
         let content = Self.makePanelAssembly(model: model, layout: layout, mode: appliedDisplayMode, size: size,
                                              transparency: model.hudBackgroundTransparency,
                                              ignoresMouseEvents: geometry.interaction.ignoresMouseEvents)
@@ -100,6 +102,13 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             guard let self else { return }
             self.geometry.setTransparency(value)
             self.background.update(value)
+            if !self.geometry.interaction.isDragging { self.updateGeometry(animated: true) }
+        }
+        iconVisibilityObserver = model.$hudIconVisibilityMode.removeDuplicates().dropFirst().sink { [weak self] value in
+            guard let self else { return }
+            // Published emits before storage changes; carry the incoming value
+            // into geometry instead of reading the model's previous mode.
+            self.geometry.setIconVisibilityMode(value)
             if !self.geometry.interaction.isDragging { self.updateGeometry(animated: true) }
         }
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -239,7 +248,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         var nextGeometry = geometry
         nextGeometry.cancelDrag()
         var frame = NSRect(origin: previousFrame.origin,
-                           size: HUDBackgroundAppearance(transparency).size(targetLayout))
+                           size: nextGeometry.appearance.size(targetLayout))
         if placement == .preserveCurrentGeometry {
             if wasDragging {
                 nextGeometry.restoreReference(HUDBackgroundAppearance.referenceFrame(previousFrame, layout: layout))
@@ -256,7 +265,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             positionRetryDeadline = nil
         }
         cancelInteraction()
-        model.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
+        model.hudIconFraction = nextGeometry.appearance.compact ? 0 : 1
         let replacement = Self.makePanelAssembly(model: model, layout: targetLayout, mode: mode,
                                                  size: frame.size, transparency: transparency,
                                                  ignoresMouseEvents: nextGeometry.interaction.ignoresMouseEvents)
@@ -301,12 +310,12 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         transitionTimer = nil
         if let target = transitionTarget { setDisplayFrame(target) }
         transitionTarget = nil
-        model?.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
+        model?.hudIconFraction = geometry.appearance.compact ? 0 : 1
     }
 
     private func updateGeometry(animated: Bool) {
         guard let window, !geometry.interaction.isDragging else { return }
-        let appearance = HUDBackgroundAppearance(transparency)
+        let appearance = geometry.appearance
         guard let target = geometry.target(layout: layout, visible: bestScreen(for: window.frame)?.visibleFrame) else { return }
         if transitionTimer != nil, transitionTarget == target { return }
         transitionTimer?.invalidate()

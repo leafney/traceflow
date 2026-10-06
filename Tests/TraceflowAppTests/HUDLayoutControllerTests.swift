@@ -6,6 +6,62 @@ import TraceflowCore
 
 @MainActor
 final class HUDLayoutControllerTests: XCTestCase {
+    func testInitialIconModeOverridesTransparencyAndPersistsWithoutJumpingAnimation() throws {
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        for (mode, transparency, fraction) in [
+            (HUDIconVisibilityMode.alwaysShow, 100, 1.0), (.alwaysHide, 0, 0.0),
+            (.automatic, 79, 1.0), (.automatic, 80, 0.0)
+        ] {
+            fixture.defaults.set(mode.rawValue, forKey: HUDPreferences.iconVisibilityKey)
+            fixture.defaults.set(transparency, forKey: HUDPreferences.transparencyKey)
+            let model = AppModel(defaults: fixture.defaults)
+            XCTAssertEqual(model.hudIconVisibilityMode, mode)
+            XCTAssertEqual(model.hudIconFraction, fraction)
+            model.hudIconVisibilityMode = mode == .alwaysShow ? .alwaysHide : .alwaysShow
+            XCTAssertEqual(model.hudIconFraction, fraction, "模型只保存模式，不能抢先改变动画比例")
+            XCTAssertEqual(HUDPreferences(defaults: fixture.defaults).loadIconVisibilityMode(), model.hudIconVisibilityMode)
+        }
+    }
+
+    func testIconModeUpdatesSameWindowAndKeepsBackgroundAndSavedPositionsInEveryLayout() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        let store = HUDPositionStore(defaults: fixture.defaults)
+        for layout in HUDLayoutMode.allCases {
+            fixture.model.hudLayoutMode = layout
+            fixture.model.hudIconVisibilityMode = .automatic
+            fixture.model.previewTransparency(100)
+            let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+            controller.show()
+            let panel = try XCTUnwrap(controller.window)
+            let records = HUDLayoutMode.allCases.map { store.loadResult($0) }
+            fixture.model.hudIconVisibilityMode = .alwaysShow
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertTrue(controller.window === panel)
+            XCTAssertEqual(panel.frame.size, layout.isHorizontal ? CGSize(width: 420, height: 40) : CGSize(width: 40, height: 420))
+            XCTAssertEqual(fixture.model.hudIconFraction, 1)
+            XCTAssertEqual(try contentParts(panel).background.alphaValue, 0)
+            fixture.model.previewTransparency(0)
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertEqual(fixture.model.hudIconFraction, 1)
+            XCTAssertEqual(try contentParts(panel).background.alphaValue, 1)
+            fixture.model.hudIconVisibilityMode = .alwaysHide
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertTrue(controller.window === panel)
+            XCTAssertEqual(panel.frame.size, layout.isHorizontal ? CGSize(width: 380, height: 40) : CGSize(width: 40, height: 380))
+            XCTAssertEqual(fixture.model.hudIconFraction, 0)
+            XCTAssertFalse(panel.hasShadow)
+            fixture.model.hudIconVisibilityMode = .automatic
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertEqual(fixture.model.hudIconFraction, 1)
+            XCTAssertEqual(HUDLayoutMode.allCases.map { store.loadResult($0) }, records)
+            controller.hide()
+        }
+    }
+
     func testPendingLayoutKeepsOldHostedGeometryUntilPanelReplacement() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }

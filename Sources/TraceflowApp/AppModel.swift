@@ -43,6 +43,7 @@ final class AppModel: ObservableObject {
     @Published var hudLayoutMode: HUDLayoutMode { didSet { hudPreferences.saveLayoutMode(hudLayoutMode) } }
     @Published var hudGlowMode: HUDGlowMode { didSet { hudPreferences.saveGlowMode(hudGlowMode) } }
     @Published var hudTitleColor: HUDTitleColor { didSet { hudPreferences.saveTitleColor(hudTitleColor) } }
+    @Published var hudIconVisibilityMode: HUDIconVisibilityMode { didSet { hudPreferences.saveIconVisibilityMode(hudIconVisibilityMode) } }
     @Published var isHUDPinned: Bool { didSet { hudPreferences.savePinned(isHUDPinned) } }
 
     @Published var hudIconFraction: Double = 1
@@ -100,9 +101,11 @@ final class AppModel: ObservableObject {
         hudTitleColor = hudPreferences.loadTitleColor()
         isHUDPinned = hudPreferences.loadPinned()
         let savedTransparency = hudPreferences.loadTransparency()
+        let savedIconMode = hudPreferences.loadIconVisibilityMode()
+        hudIconVisibilityMode = savedIconMode
         transparencyDraft = HUDTransparencyDraft(savedTransparency)
         hudBackgroundTransparency = savedTransparency
-        hudIconFraction = HUDBackgroundAppearance(hudBackgroundTransparency).compact ? 0 : 1
+        hudIconFraction = HUDBackgroundAppearance(savedTransparency, iconVisibilityMode: savedIconMode).compact ? 0 : 1
         scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
         expandedProjectKeys = Set(defaults.stringArray(forKey: "expandedProjectKeys") ?? [])
         restoreSessions()

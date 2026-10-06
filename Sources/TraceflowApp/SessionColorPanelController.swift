@@ -71,10 +71,11 @@ final class SessionColorPanelController {
         let channels = [rgb.redComponent, rgb.greenComponent, rgb.blueComponent]
             .map { Int((min(1, max(0, $0)) * 255).rounded()) }
         let hex = String(format: "#%02X%02X%02X", channels[0], channels[1], channels[2])
-        do { try model.setMarkerColor(hex, sessionID: id) }
-        catch {
-            close()
-            model.markerColorErrorMessage = "颜色保存失败，未更改会话颜色"
+        model.requestMarkerColor(hex, sessionID: id) { [weak self, weak model] result in
+            guard case .failure = result, let self,
+                  self.generation == token, self.sessionID == id else { return }
+            self.close()
+            model?.markerColorErrorMessage = "颜色保存失败，未更改会话颜色"
         }
     }
 

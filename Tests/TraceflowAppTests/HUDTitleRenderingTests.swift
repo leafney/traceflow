@@ -20,7 +20,7 @@ final class HUDTitleRenderingTests: XCTestCase {
         for name in ["123------", "一段明显更长的标题用于检查旧字形", "Q", "Traceflow"] {
             try await fixture.hook("live-title", event: .userPromptSubmit)
             XCTAssertFalse(fixture.model.shouldAnimateDisplayChange)
-            try fixture.model.setCustomTitle(name, sessionID: "live-title")
+            try await fixture.model.setCustomTitle(name, sessionID: "live-title")
             try await assertCurrentHostedTitle(controller, fixture: fixture)
             try await fixture.hook("live-title", event: .interrupt)
             XCTAssertNil(fixture.model.displayedSession)
@@ -43,7 +43,7 @@ final class HUDTitleRenderingTests: XCTestCase {
                 controller.show()
                 try await fixture.hook("a", event: .userPromptSubmit)
                 XCTAssertEqual(fixture.model.displayedSession?.id, "a")
-                try fixture.model.setCustomTitle("123------", sessionID: "a")
+                try await fixture.model.setCustomTitle("123------", sessionID: "a")
                 try await Task.sleep(nanoseconds: 300_000_000)
                 try await fixture.hook("b", event: .permissionRequest)
                 XCTAssertEqual(fixture.model.displayedSession?.id, "b")
@@ -53,7 +53,7 @@ final class HUDTitleRenderingTests: XCTestCase {
                 fixture.model.setIncluded(false, sessionID: "b")
                 XCTAssertEqual(fixture.model.displayedSession?.id, "c")
                 XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
-                try fixture.model.setCustomTitle("Q", sessionID: "c")
+                try await fixture.model.setCustomTitle("Q", sessionID: "c")
                 try await assertCurrentHostedTitle(controller, fixture: fixture)
                 try await Task.sleep(nanoseconds: 1_000_000_000)
                 try await assertCurrentHostedTitle(controller, fixture: fixture)
@@ -88,7 +88,7 @@ final class HUDTitleRenderingTests: XCTestCase {
                 fixture.model.hudLayoutMode = layout
                 try await Task.sleep(nanoseconds: 50_000_000)
                 try await fixture.hook("screen-a", event: .userPromptSubmit)
-                try fixture.model.setCustomTitle("首个会话", sessionID: "screen-a")
+                try await fixture.model.setCustomTitle("首个会话", sessionID: "screen-a")
                 XCTAssertFalse(fixture.model.shouldAnimateDisplayChange)
                 try await screen.assertSettled(controller, fixture: fixture,
                                                regions: [screenContentRegion(layout)], compareFull: false)
@@ -103,7 +103,7 @@ final class HUDTitleRenderingTests: XCTestCase {
                 // The content band includes the old light positions but excludes
                 // the legitimate current animated lights.
                 for title in ["布局切换后很长的会话标题用于检查旧字形", "Q"] {
-                    try fixture.model.setCustomTitle(title, sessionID: "screen-b")
+                    try await fixture.model.setCustomTitle(title, sessionID: "screen-b")
                     try await screen.assertSettled(controller, fixture: fixture,
                                                    regions: [screenContentRegion(fixture.model.hudLayoutMode)],
                                                    compareFull: false)
@@ -201,9 +201,9 @@ final class HUDTitleRenderingTests: XCTestCase {
             let a = "\(prefix)-\(attempt)-a"
             let b = "\(prefix)-\(attempt)-b"
             try await fixture.hook(a, event: .userPromptSubmit)
-            try fixture.model.setCustomTitle("MMMMMMMMMMMM", sessionID: a)
+            try await fixture.model.setCustomTitle("MMMMMMMMMMMM", sessionID: a)
             try await fixture.hook(b, event: .userPromptSubmit)
-            try fixture.model.setCustomTitle("I", sessionID: b)
+            try await fixture.model.setCustomTitle("I", sessionID: b)
             try await Task.sleep(nanoseconds: 300_000_000)
             let before = try screen.captureNow(try XCTUnwrap(controller.window))
             let began = ProcessInfo.processInfo.systemUptime
@@ -265,14 +265,14 @@ final class HUDTitleRenderingTests: XCTestCase {
             try await fixture.hook("untitled", event: .userPromptSubmit)
             XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, "未命名会话")
             for title in ["Traceflow", "较长的标题需要在变短后擦除", "Q"] {
-                try fixture.model.setCustomTitle(title, sessionID: "untitled")
+                try await fixture.model.setCustomTitle(title, sessionID: "untitled")
                 XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, title)
                 try await Task.sleep(nanoseconds: 300_000_000)
                 let expected = ImageRenderer(content: HUDView(model: fixture.model))
                 try assertTitlePixelsEqual(renderer.cgImage, expected.cgImage, layout: layout)
             }
             try await fixture.hook("untitled", event: .interrupt)
-            try fixture.model.resetCustomTitle(sessionID: "untitled")
+            try await fixture.model.resetCustomTitle(sessionID: "untitled")
             try await Task.sleep(nanoseconds: 300_000_000)
             XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, "Traceflow")
             let expected = ImageRenderer(content: HUDView(model: fixture.model))
@@ -301,10 +301,10 @@ final class HUDTitleRenderingTests: XCTestCase {
             let previousHosting = hosting
             let previousBackground = background
             try await fixture.hook("layout-a", event: .userPromptSubmit)
-            try fixture.model.setCustomTitle("123------", sessionID: "layout-a")
+            try await fixture.model.setCustomTitle("123------", sessionID: "layout-a")
             try await Task.sleep(nanoseconds: 300_000_000)
             try await fixture.hook("layout-b", event: .userPromptSubmit)
-            try fixture.model.setCustomTitle("Q", sessionID: "layout-b")
+            try await fixture.model.setCustomTitle("Q", sessionID: "layout-b")
             try await fixture.hook("layout-b", event: .permissionRequest)
             XCTAssertEqual(fixture.model.displayedSession?.id, "layout-b")
             XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
@@ -325,7 +325,7 @@ final class HUDTitleRenderingTests: XCTestCase {
             XCTAssertNil(previousContainer.window)
             XCTAssertEqual(HUDView(model: fixture.model).displayedTitle, "Q")
             try await fixture.hook("layout-c", event: .permissionRequest)
-            try fixture.model.setCustomTitle("Traceflow", sessionID: "layout-c")
+            try await fixture.model.setCustomTitle("Traceflow", sessionID: "layout-c")
             fixture.model.setIncluded(false, sessionID: "layout-b")
             XCTAssertEqual(fixture.model.displayedSession?.id, "layout-c")
             XCTAssertTrue(fixture.model.shouldAnimateDisplayChange, "布局切换后继续保留会话动画决策")
@@ -365,7 +365,7 @@ final class HUDTitleRenderingTests: XCTestCase {
             let renderer = ImageRenderer(content: HUDView(model: fixture.model))
             for _ in 0..<2 {
                 try await fixture.hook("title", event: .userPromptSubmit)
-                try fixture.model.setCustomTitle("提示显示逻辑", sessionID: "title")
+                try await fixture.model.setCustomTitle("提示显示逻辑", sessionID: "title")
                 XCTAssertNotNil(fixture.model.displayedSession)
                 let session = try XCTUnwrap(fixture.model.displayedSession)
                 XCTAssertEqual(session.persisted.projectName, "qa")

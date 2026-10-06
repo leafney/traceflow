@@ -25,6 +25,7 @@ final class SessionColorPanelBindingTests: XCTestCase {
         NSApplication.shared.sendAction(retiredAction, to: retiredTarget, from: panel)
         XCTAssertEqual(try fixture.session("a").persisted.markerColorHex, originalA)
         try sendPanelAction(panel, controller: controller)
+        try await fixture.model.flushSessionWrites()
         XCTAssertEqual(try fixture.session("b").persisted.markerColorHex, "#1A334D")
         controller.close()
         XCTAssertNil(controller.sessionID)
@@ -59,6 +60,7 @@ final class SessionColorPanelBindingTests: XCTestCase {
         // NSColorPanel may send its action synchronously from the setter.
         // Replay the captured action as well: a closed binding must reject it.
         target.colorChanged(panel)
+        await assertAsyncThrows(try await fixture.model.flushSessionWrites())
         XCTAssertNil(controller.sessionID)
         XCTAssertFalse(panel.isVisible)
         XCTAssertEqual(try fixture.session("a").persisted.markerColorHex, color)

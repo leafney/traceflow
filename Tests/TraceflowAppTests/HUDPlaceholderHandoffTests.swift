@@ -28,7 +28,7 @@ final class HUDPlaceholderHandoffTests: XCTestCase {
             let records = HUDLayoutMode.allCases.map { store.loadResult($0) }
             let placeholder = try hosted(original)
             try await fixture.hook("first", event: .userPromptSubmit)
-            try fixture.model.setCustomTitle("-     -     -", sessionID: "first")
+            try await fixture.model.setCustomTitle("-     -     -", sessionID: "first")
             try await fixture.waitUntil { controller.window !== original }
             let sessionPanel = try XCTUnwrap(controller.window)
             XCTAssertFalse(sessionPanel.hasShadow)
@@ -68,7 +68,7 @@ final class HUDPlaceholderHandoffTests: XCTestCase {
         XCTAssertEqual(fixture.model.displayedSession?.id, "b")
         XCTAssertTrue(fixture.model.shouldAnimateDisplayChange)
         XCTAssertEqual(view.presentation.displayedSession?.id, "b")
-        try fixture.model.setCustomTitle("Traceflow", sessionID: "b")
+        try await fixture.model.setCustomTitle("Traceflow", sessionID: "b")
         XCTAssertTrue(controller.window === panel)
         XCTAssertEqual(view.displayedTitle, "Traceflow")
         XCTAssertNotNil(view.presentation.displayedSession)
@@ -94,7 +94,7 @@ final class HUDPlaceholderHandoffTests: XCTestCase {
         try await fixture.hook("untitled", event: .userPromptSubmit)
         XCTAssertEqual(live.displayedTitle, "未命名会话")
         XCTAssertNil(placeholder.displayedSession)
-        try fixture.model.setCustomTitle("-     -     -", sessionID: "untitled")
+        try await fixture.model.setCustomTitle("-     -     -", sessionID: "untitled")
         XCTAssertEqual(live.displayedTitle, "-     -     -")
         fixture.model.setIncluded(false, sessionID: "untitled")
         XCTAssertEqual(live.displayedTitle, "Traceflow")
@@ -370,7 +370,7 @@ final class HUDPlaceholderHandoffTests: XCTestCase {
         // Prepare a real, idle session with the diagnostic short title before
         // the tested default surface exists. The next real hook makes it visible.
         try await fixture.hook("short", event: .userPromptSubmit)
-        try fixture.model.setCustomTitle("-     -     -", sessionID: "short")
+        try await fixture.model.setCustomTitle("-     -     -", sessionID: "short")
         try await fixture.hook("short", event: .interrupt)
         XCTAssertNil(fixture.model.displayedSession)
         try screen.preparePositions(defaults: fixture.defaults)

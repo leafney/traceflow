@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private(set) var panelController: HUDPanelController?
     private(set) var statusItem: NSStatusItem?
     private var timer: Timer?
+    private var isTerminating = false
     private var visibilityObserver: AnyCancellable?
     private var pinObserver: AnyCancellable?
     private var styleObserver: AnyCancellable?
@@ -71,6 +72,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         layoutObserver = model.$hudLayoutMode.dropFirst().sink { [weak self] _ in
             self?.scheduleMenuRefresh()
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isTerminating else { return .terminateLater }
+        isTerminating = true
+        timer?.invalidate()
+        model.commitTransparency()
+        model.sessionColorPanel.close()
+        model.beginShutdown()
+        Task {
+            do { try await model.flushSessionWrites() }
+            catch { model.logDiagnostic("sessions=termination_flush_failed error=\(error.localizedDescription)") }
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) { model.commitTransparency(); model.sessionColorPanel.close(); model.stopListening() }

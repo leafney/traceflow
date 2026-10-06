@@ -8,6 +8,7 @@ final class SessionTitleEditingState: ObservableObject {
     let sessionID: String
     @Published var draft: String { didSet { saveError = nil } }
     @Published private(set) var saveError: String?
+    @Published private(set) var isSaving = false
 
     init(model: AppModel, session: SessionSnapshot) {
         self.model = model
@@ -30,19 +31,23 @@ final class SessionTitleEditingState: ObservableObject {
         if session == nil { return "会话已不存在" }
         return saveError ?? unavailableMessage ?? validationMessage
     }
-    var canSave: Bool { unavailableMessage == nil && validationMessage == nil }
-    var canRestore: Bool { unavailableMessage == nil && session?.persisted.customTitle != nil }
+    var canSave: Bool { !isSaving && unavailableMessage == nil && validationMessage == nil }
+    var canRestore: Bool { !isSaving && unavailableMessage == nil && session?.persisted.customTitle != nil }
 
     /// True means the view may dismiss. Invalid input and write errors keep it open.
-    func save() -> Bool {
+    func save() async -> Bool {
         guard canSave else { return false }
-        do { try model.setCustomTitle(draft, sessionID: sessionID); return true }
+        isSaving = true
+        defer { isSaving = false }
+        do { try await model.setCustomTitle(draft, sessionID: sessionID); return true }
         catch { saveError = error.localizedDescription; return false }
     }
 
-    func restore() -> Bool {
+    func restore() async -> Bool {
         guard canRestore else { return false }
-        do { try model.resetCustomTitle(sessionID: sessionID); return true }
+        isSaving = true
+        defer { isSaving = false }
+        do { try await model.resetCustomTitle(sessionID: sessionID); return true }
         catch { saveError = error.localizedDescription; return false }
     }
 }

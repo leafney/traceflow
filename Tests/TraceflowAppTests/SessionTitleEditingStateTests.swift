@@ -14,7 +14,8 @@ final class SessionTitleEditingStateTests: XCTestCase {
         let file = TraceflowPaths.sessions()
         let before = try Data(contentsOf: file)
         editing?.draft = "一\n二"
-        XCTAssertFalse(try XCTUnwrap(editing).save())
+        let editResult1 = try await XCTUnwrap(editing).save()
+        XCTAssertFalse(editResult1)
         XCTAssertFalse(try XCTUnwrap(editing).canSave)
         XCTAssertEqual(try Data(contentsOf: file), before)
         editing?.draft = "尚未保存的草稿"
@@ -27,11 +28,13 @@ final class SessionTitleEditingStateTests: XCTestCase {
         XCTAssertNil(try fixture.session("editor").persisted.customTitle)
         let reopened = SessionTitleEditingState(model: fixture.model, session: try fixture.session("editor"))
         reopened.draft = "新名称"
-        XCTAssertTrue(reopened.save())
+        let editResult2 = await reopened.save()
+        XCTAssertTrue(editResult2)
         let again = SessionTitleEditingState(model: fixture.model, session: try fixture.session("editor"))
         XCTAssertEqual(again.draft, "新名称")
         XCTAssertTrue(again.canRestore)
-        XCTAssertTrue(again.restore())
+        let editResult3 = await again.restore()
+        XCTAssertTrue(editResult3)
         XCTAssertFalse(again.canRestore)
         XCTAssertNil(try fixture.session("editor").persisted.customTitle)
     }
@@ -51,7 +54,8 @@ final class SessionTitleEditingStateTests: XCTestCase {
             try? FileManager.default.removeItem(at: directory)
             try? FileManager.default.moveItem(at: backup, to: directory)
         }
-        XCTAssertFalse(editing.save())
+        let editResult4 = await editing.save()
+        XCTAssertFalse(editResult4)
         XCTAssertEqual(editing.draft, "保存失败仍保留")
         XCTAssertEqual(editing.message, SessionTitleSaveError.writeFailed.localizedDescription)
         XCTAssertFalse(editing.canSave)
@@ -59,10 +63,13 @@ final class SessionTitleEditingStateTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
         try FileManager.default.moveItem(at: backup, to: directory)
         fixture.model.retrySessionSave()
+        try await fixture.model.flushSessionWrites()
         fixture.model.deleteSession("editor")
         XCTAssertEqual(editing.message, "会话已不存在")
-        XCTAssertFalse(editing.save())
-        XCTAssertFalse(editing.restore())
+        let editResult5 = await editing.save()
+        XCTAssertFalse(editResult5)
+        let editResult6 = await editing.restore()
+        XCTAssertFalse(editResult6)
         XCTAssertTrue(fixture.model.sessions.isEmpty)
     }
 }

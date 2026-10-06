@@ -17,7 +17,7 @@ final class SessionMarkerEditingTests: XCTestCase {
         let before = try fixture.session("a")
         XCTAssertNotNil(before.persisted.markerColorHex)
         XCTAssertNotEqual(before.persisted.markerColorHex, try fixture.session("b").persisted.markerColorHex)
-        try fixture.model.setMarkerColor("#ABCDEF", sessionID: "a")
+        try await fixture.model.setMarkerColor("#ABCDEF", sessionID: "a")
         var expected = before
         expected.persisted.markerColorHex = "#ABCDEF"
         XCTAssertEqual(try fixture.session("a"), expected)
@@ -31,11 +31,11 @@ final class SessionMarkerEditingTests: XCTestCase {
         let restored = AppModel(defaults: fixture.defaults)
         XCTAssertEqual(restored.sessions.first { $0.id == "a" }?.persisted.markerColorHex, "#ABCDEF")
         // Explicitly allow duplicate manual colors.
-        try fixture.model.setMarkerColor("#ABCDEF", sessionID: "b")
+        try await fixture.model.setMarkerColor("#ABCDEF", sessionID: "b")
         XCTAssertEqual(try fixture.session("b").persisted.markerColorHex, "#ABCDEF")
     }
 
-    func testStartupFillsLegacyRecordsAndPersistsOnce() throws {
+    func testStartupFillsLegacyRecordsAndPersistsOnce() async throws {
         _ = NSApplication.shared
         let fixture = try SessionIntegrationFixture()
         defer { fixture.cleanUp() }
@@ -46,6 +46,7 @@ final class SessionMarkerEditingTests: XCTestCase {
         let record = try XCTUnwrap(restored.sessions.first?.persisted)
         XCTAssertEqual(record.markerColorHex, "#477EE8")
         XCTAssertEqual(record.lastUpdatedAt, date)
+        try await restored.flushSessionWrites()
         XCTAssertEqual(try SessionStore(url: TraceflowPaths.sessions()).load(), [record])
         XCTAssertEqual(AppModel(defaults: fixture.defaults).sessions.first?.persisted, record)
     }
@@ -56,7 +57,7 @@ final class SessionMarkerEditingTests: XCTestCase {
         defer { fixture.cleanUp() }
         try await fixture.hook("a", event: .sessionStart)
         let before = try fixture.session("a")
-        XCTAssertThrowsError(try fixture.model.setMarkerColor("bad", sessionID: "a"))
+        await assertAsyncThrows(try await fixture.model.setMarkerColor("bad", sessionID: "a"))
         let directory = TraceflowPaths.sessions().deletingLastPathComponent()
         let backup = fixture.root.appendingPathComponent("saved-data")
         try FileManager.default.moveItem(at: directory, to: backup)
@@ -65,9 +66,9 @@ final class SessionMarkerEditingTests: XCTestCase {
             try? FileManager.default.moveItem(at: backup, to: directory)
         }
         try Data("blocked".utf8).write(to: directory)
-        XCTAssertThrowsError(try fixture.model.setMarkerColor("#ABCDEF", sessionID: "a"))
+        await assertAsyncThrows(try await fixture.model.setMarkerColor("#ABCDEF", sessionID: "a"))
         XCTAssertEqual(try fixture.session("a"), before)
         XCTAssertFalse(fixture.model.sessionDataHealth.allowsSaving)
-        XCTAssertThrowsError(try fixture.model.setMarkerColor("#ABCDEF", sessionID: "missing"))
+        await assertAsyncThrows(try await fixture.model.setMarkerColor("#ABCDEF", sessionID: "missing"))
     }
 }

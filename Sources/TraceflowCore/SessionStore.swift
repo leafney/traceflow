@@ -36,8 +36,30 @@ public struct SessionDocument: Codable, Sendable, Equatable {
 public final class SessionStore: @unchecked Sendable {
     private let url: URL
     private let queue = DispatchQueue(label: "io.traceflow.sessions")
+    private let beforeWrite: (() -> Void)?
     private var storedHealth: SessionDataHealth = .healthy
-    public init(url: URL) { self.url = url }
+    public init(url: URL, beforeWrite: (() -> Void)? = nil) {
+        self.url = url
+        self.beforeWrite = beforeWrite
+    }
+
+    /// Enqueue immediately on the same FIFO used by synchronous recovery and
+    /// shutdown barriers. Completion always runs on the main queue.
+    public func saveAsync(_ sessions: [PersistedSession], retry: Bool = false,
+                          completion: @escaping (Result<Void, Error>, SessionDataHealth) -> Void) {
+        queue.async {
+            let result: Result<Void, Error>
+            do {
+                if !self.storedHealth.allowsSaving {
+                    guard retry, case .unwritable = self.storedHealth else { throw SessionStoreError.writeProtected }
+                }
+                try self.saveUnlocked(sessions)
+                result = .success(())
+            } catch { result = .failure(error) }
+            let health = self.storedHealth
+            DispatchQueue.main.async { completion(result, health) }
+        }
+    }
 
     public var health: SessionDataHealth { queue.sync { storedHealth } }
 
@@ -110,6 +132,7 @@ public final class SessionStore: @unchecked Sendable {
     }
 
     private func writeDocumentUnlocked(_ document: SessionDocument) throws {
+        beforeWrite?()
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let data = try JSONEncoder.traceflow.encode(document)

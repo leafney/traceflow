@@ -4,13 +4,23 @@ import CoreGraphics
 public struct HUDBackgroundAppearance {
     public static let defaultTransparency = 10
     public let transparency: Int
-    public init(_ value: Int) { transparency = Self.normalize(Double(value)) }
+    public let iconVisibilityMode: HUDIconVisibilityMode
+    public init(_ value: Int, iconVisibilityMode: HUDIconVisibilityMode = .automatic) {
+        transparency = Self.normalize(Double(value))
+        self.iconVisibilityMode = iconVisibilityMode
+    }
     public static func normalize(_ value: Double) -> Int {
         guard value.isFinite else { return defaultTransparency }
         return Int(min(100, max(0, value)).rounded())
     }
     public static let iconHiddenThreshold = 80
-    public var compact: Bool { transparency >= Self.iconHiddenThreshold }
+    public var compact: Bool {
+        switch iconVisibilityMode {
+        case .automatic: transparency >= Self.iconHiddenThreshold
+        case .alwaysShow: false
+        case .alwaysHide: true
+        }
+    }
     public var backgroundAlpha: Double { 1 - Double(transparency) / 100 }
     public var materialAlpha: Double { Double(transparency) / 100 }
     public func size(_ layout: HUDLayoutMode) -> CGSize {

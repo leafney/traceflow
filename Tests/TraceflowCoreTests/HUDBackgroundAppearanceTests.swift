@@ -2,6 +2,30 @@ import XCTest
 @testable import TraceflowCore
 
 final class HUDBackgroundAppearanceTests: XCTestCase {
+    func testIconModesAcrossTransparencyBoundariesAndFourLayouts() {
+        for mode in HUDIconVisibilityMode.allCases {
+            for value in [0, 79, 80, 81, 100] {
+                let hidden = mode == .alwaysHide || (mode == .automatic && value >= 80)
+                let appearance = HUDBackgroundAppearance(value, iconVisibilityMode: mode)
+                XCTAssertEqual(appearance.compact, hidden)
+                XCTAssertEqual(appearance.backgroundAlpha, 1 - Double(value) / 100)
+                XCTAssertEqual(appearance.materialAlpha, Double(value) / 100)
+                for layout in HUDLayoutMode.allCases {
+                    let reference = CGRect(x: 100, y: 200,
+                                           width: layout.isHorizontal ? 420 : 40,
+                                           height: layout.isHorizontal ? 40 : 420)
+                    let expected = CGRect(x: hidden && layout == .horizontalRight ? 140 : 100,
+                                          y: hidden && layout == .verticalTop ? 240 : 200,
+                                          width: layout.isHorizontal ? (hidden ? 380 : 420) : 40,
+                                          height: layout.isHorizontal ? 40 : (hidden ? 380 : 420))
+                    XCTAssertEqual(appearance.size(layout), expected.size)
+                    XCTAssertEqual(appearance.displayFrame(reference, layout: layout), expected)
+                    XCTAssertEqual(HUDBackgroundAppearance.referenceFrame(expected, layout: layout), reference)
+                }
+            }
+        }
+    }
+
     func testInterruptedAnimationStartsFromVisibleStateAndKeepsFixedEnd() {
         for layout in HUDLayoutMode.allCases {
             let reference = CGRect(origin: CGPoint(x: -800, y: 50), size: HUDPositionGeometry.size(for: layout))

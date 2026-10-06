@@ -4,11 +4,21 @@ import CoreGraphics
 public struct HUDGeometryState {
     public private(set) var interaction: HUDInteractionState
     public private(set) var transparency: Int
+    public private(set) var iconVisibilityMode: HUDIconVisibilityMode
     public private(set) var reference: CGRect?
 
-    public init(transparency: Int, pinned: Bool) {
+    public init(transparency: Int, pinned: Bool, iconVisibilityMode: HUDIconVisibilityMode = .automatic) {
         self.transparency = HUDBackgroundAppearance.normalize(Double(transparency))
+        self.iconVisibilityMode = iconVisibilityMode
         interaction = HUDInteractionState(isPinned: pinned)
+    }
+
+    public var appearance: HUDBackgroundAppearance {
+        HUDBackgroundAppearance(transparency, iconVisibilityMode: iconVisibilityMode)
+    }
+
+    public mutating func setIconVisibilityMode(_ mode: HUDIconVisibilityMode) {
+        iconVisibilityMode = mode
     }
 
     public mutating func setTransparency(_ value: Int) {
@@ -19,7 +29,7 @@ public struct HUDGeometryState {
 
     public func target(layout: HUDLayoutMode, visible: CGRect?) -> CGRect? {
         guard !interaction.isDragging, let reference else { return nil }
-        let display = HUDBackgroundAppearance(transparency).displayFrame(reference, layout: layout)
+        let display = appearance.displayFrame(reference, layout: layout)
         return visible.map { HUDPositionGeometry.clamped(display, to: $0) } ?? display
     }
 

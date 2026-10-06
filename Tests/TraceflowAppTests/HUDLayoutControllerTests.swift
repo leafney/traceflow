@@ -6,6 +6,69 @@ import TraceflowCore
 
 @MainActor
 final class HUDLayoutControllerTests: XCTestCase {
+    func testAutomaticThresholdScrubbingKeepsCurrentFrameAndFinalStateInEveryLayout() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.hudIconVisibilityMode = .automatic
+        for layout in HUDLayoutMode.allCases {
+            fixture.model.hudLayoutMode = layout
+            fixture.model.previewTransparency(79)
+            let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+            controller.show()
+            let panel = try XCTUnwrap(controller.window)
+            let original = panel.frame
+            let record = HUDPositionStore(defaults: fixture.defaults).loadResult(layout)
+            fixture.model.setTransparencyEditing(true)
+            fixture.model.previewTransparency(80)
+            for value in [81.0, 82, 83, 82, 81, 80] {
+                try await Task.sleep(nanoseconds: 20_000_000)
+                fixture.model.previewTransparency(value)
+            }
+            try await Task.sleep(nanoseconds: 200_000_000)
+            XCTAssertEqual(fixture.model.hudIconFraction, 0)
+            XCTAssertEqual(panel.frame.size, layout.isHorizontal ? CGSize(width: 380, height: 40) : CGSize(width: 40, height: 380))
+            if layout == .horizontalRight { XCTAssertEqual(panel.frame.maxX, original.maxX) }
+            if layout == .horizontalLeft { XCTAssertEqual(panel.frame.minX, original.minX) }
+            if layout == .verticalTop { XCTAssertEqual(panel.frame.maxY, original.maxY) }
+            if layout == .verticalBottom { XCTAssertEqual(panel.frame.minY, original.minY) }
+            for value in [79.0, 80, 79, 80, 79] {
+                try await Task.sleep(nanoseconds: 20_000_000)
+                let frame = panel.frame
+                let fraction = fixture.model.hudIconFraction
+                fixture.model.previewTransparency(value)
+                if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    XCTAssertEqual(panel.frame, frame, "跨阈值只改目标，不抢先改变当前显示帧")
+                    XCTAssertEqual(fixture.model.hudIconFraction, fraction)
+                }
+            }
+            fixture.model.setTransparencyEditing(false)
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertTrue(controller.window === panel)
+            XCTAssertEqual(panel.frame, original)
+            XCTAssertEqual(fixture.model.hudIconFraction, 1)
+            XCTAssertEqual(HUDPositionStore(defaults: fixture.defaults).loadResult(layout), record)
+            controller.hide()
+        }
+    }
+
+    func testActiveSizeAnimationDoesNotRetainController() throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.previewTransparency(79)
+        weak var released: HUDPanelController?
+        autoreleasepool {
+            let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+            released = controller
+            controller.show()
+            fixture.model.previewTransparency(80)
+        }
+        XCTAssertNil(released, "显示链接不能通过回调目标强引用窗口控制器")
+    }
+
     func testIconModeReversalStartsAtCurrentVisibleStateAndLatestChoiceWins() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }

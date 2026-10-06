@@ -2,7 +2,15 @@ import AppKit
 import Combine
 import CoreGraphics
 import SwiftUI
+import QuartzCore
 import TraceflowCore
+
+@MainActor
+private final class HUDSizeDisplayLinkTarget: NSObject {
+    var tick: ((CADisplayLink) -> Void)?
+
+    @objc func displayFrame(_ link: CADisplayLink) { tick?(link) }
+}
 
 final class NonActivatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
@@ -54,7 +62,11 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private var transparencyObserver: AnyCancellable?
     private var iconVisibilityObserver: AnyCancellable?
     private var accessibilityObserver: NSObjectProtocol?
-    private var transitionTimer: Timer?
+    private var transitionDisplayLink: CADisplayLink?
+    private let displayLinkTarget = HUDSizeDisplayLinkTarget()
+    private var sizeTransition: HUDSizeTransition?
+    private var transitionBegan: Double = 0
+    private var transitionElapsed: Double = 0
     private var transitionTarget: NSRect?
     private var appliedDisplayMode: HUDWindowDisplayMode
     private var displayModeObserver: AnyCancellable?
@@ -145,6 +157,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     required init?(coder: NSCoder) { nil }
+    deinit { transitionDisplayLink?.invalidate() }
     func show() {
         let placement = synchronizePresentation()
         if placement != .preserveCurrentGeometry { restorePosition() }
@@ -159,8 +172,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private func cancelInteraction() {
         (window?.contentView as? HUDDragView)?.cancelDrag()
         geometry.cancelDrag()
-        transitionTimer?.invalidate()
-        transitionTimer = nil
+        stopSizeAnimation()
         transitionTarget = nil
     }
 
@@ -299,15 +311,22 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func setDisplayFrame(_ frame: NSRect) {
-        window?.setFrame(frame, display: true)
+    private func setDisplayFrame(_ frame: NSRect, immediate: Bool = true) {
+        window?.setFrame(frame, display: immediate)
         hostingView.frame = NSRect(origin: .zero, size: frame.size)
+    }
+
+    private func stopSizeAnimation() {
+        transitionDisplayLink?.invalidate()
+        transitionDisplayLink = nil
+        displayLinkTarget.tick = nil
+        sizeTransition = nil
+        transitionElapsed = 0
     }
 
     private func finishTransition() {
         guard !geometry.interaction.isDragging else { return }
-        transitionTimer?.invalidate()
-        transitionTimer = nil
+        stopSizeAnimation()
         if let target = transitionTarget { setDisplayFrame(target) }
         transitionTarget = nil
         model?.hudIconFraction = geometry.appearance.compact ? 0 : 1
@@ -317,9 +336,8 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         guard let window, !geometry.interaction.isDragging else { return }
         let appearance = geometry.appearance
         guard let target = geometry.target(layout: layout, visible: bestScreen(for: window.frame)?.visibleFrame) else { return }
-        if transitionTimer != nil, transitionTarget == target { return }
-        transitionTimer?.invalidate()
-        transitionTimer = nil
+        if transitionDisplayLink != nil, transitionTarget == target { return }
+        let velocity = sizeTransition?.iconVelocity(elapsed: transitionElapsed) ?? 0
         let start = window.frame
         let fraction = model?.hudIconFraction ?? 1
         let endFraction = appearance.compact ? 0.0 : 1.0
@@ -329,19 +347,32 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
             finishTransition()
             return
         }
-        let transition = HUDSizeTransition(start: start, target: target, initialIconFraction: fraction, targetIconFraction: endFraction)
-        let began = ProcessInfo.processInfo.systemUptime
-        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let sample = transition.sample(elapsed: ProcessInfo.processInfo.systemUptime - began)
-                self.model?.hudIconFraction = sample.iconFraction
-                self.setDisplayFrame(sample.frame)
-                if sample.complete { self.finishTransition() }
-            }
+        sizeTransition = HUDSizeTransition(start: start, target: target, initialIconFraction: fraction,
+                                           targetIconFraction: endFraction, initialIconVelocity: velocity)
+        transitionBegan = CACurrentMediaTime()
+        transitionElapsed = 0
+        // Keep the same display clock on reversal; the proxy does not retain us.
+        if transitionDisplayLink == nil {
+            displayLinkTarget.tick = { [weak self] link in self?.renderSizeTransition(link) }
+            let link = hostingView.displayLink(target: displayLinkTarget, selector: #selector(HUDSizeDisplayLinkTarget.displayFrame(_:)))
+            transitionDisplayLink = link
+            link.add(to: .main, forMode: .common)
         }
-        transitionTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func renderSizeTransition(_ link: CADisplayLink) {
+        guard let sizeTransition else { return }
+        transitionElapsed = max(0, link.targetTimestamp - transitionBegan)
+        let sample = sizeTransition.sample(elapsed: transitionElapsed)
+        // Commit size and content together for the next screen frame; avoid a
+        // synchronous repaint of the glass and hosting tree on every tick.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        model?.hudIconFraction = sample.iconFraction
+        setDisplayFrame(sample.frame, immediate: false)
+        hostingView.layoutSubtreeIfNeeded()
+        CATransaction.commit()
+        if sample.complete { finishTransition() }
     }
 
     private func restorePosition() {

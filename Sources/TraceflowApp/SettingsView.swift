@@ -44,6 +44,16 @@ struct SettingsView: View {
                         Text("系统已减少透明效果").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                Picker("图标区域", selection: $model.hudIconVisibilityMode) {
+                    Text("自动").tag(HUDIconVisibilityMode.automatic)
+                    Text("始终显示").tag(HUDIconVisibilityMode.alwaysShow)
+                    Text("始终隐藏").tag(HUDIconVisibilityMode.alwaysHide)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("图标区域")
+                Text("自动：背景透明度达到 80% 时隐藏图标区域。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 HStack {
                     Text("标题颜色")
                     Spacer()

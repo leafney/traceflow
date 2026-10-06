@@ -28,6 +28,26 @@ final class HUDPreferencesTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: HUDPreferences.layoutKey), HUDLayoutMode.horizontalRight.rawValue)
     }
 
+    func testIconVisibilityDefaultsAndInvalidStorageFallBackWithoutChangingTransparency() {
+        let preferences = HUDPreferences(defaults: defaults)
+        preferences.saveTransparency(100)
+        XCTAssertEqual(preferences.loadIconVisibilityMode(), .automatic)
+        XCTAssertNil(defaults.object(forKey: HUDPreferences.iconVisibilityKey))
+        for invalid: Any in ["invalid", 1, true] {
+            defaults.set(invalid, forKey: HUDPreferences.iconVisibilityKey)
+            XCTAssertEqual(preferences.loadIconVisibilityMode(), .automatic)
+            XCTAssertEqual(preferences.loadTransparency(), 100)
+        }
+    }
+
+    func testEveryIconVisibilityModeSurvivesPreferenceReload() {
+        for mode in HUDIconVisibilityMode.allCases {
+            HUDPreferences(defaults: defaults).saveIconVisibilityMode(mode)
+            XCTAssertEqual(defaults.string(forKey: HUDPreferences.iconVisibilityKey), mode.rawValue)
+            XCTAssertEqual(HUDPreferences(defaults: defaults).loadIconVisibilityMode(), mode)
+        }
+    }
+
     func testLegacyDirectionsMigrateWithoutChangingTheirMeaning() {
         for (legacy, expected) in [("horizontal", HUDLayoutMode.horizontalRight), ("vertical", .verticalBottom)] {
             defaults.set(legacy, forKey: HUDPreferences.layoutKey)

@@ -33,6 +33,14 @@ public enum HUDLayoutMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum HUDIconVisibilityMode: String, CaseIterable, Identifiable, Sendable {
+    case automatic
+    case alwaysShow
+    case alwaysHide
+
+    public var id: String { rawValue }
+}
+
 public enum HUDGlowMode: String, CaseIterable, Identifiable, Sendable {
     case standard
     case strong
@@ -54,6 +62,7 @@ public final class HUDPreferences {
     public static let transparencyKey = "hudBackgroundTransparency"
     public static let pinnedKey = "hudPinned"
     public static let titleColorKey = "hudTitleColor"
+    public static let iconVisibilityKey = "hudIconVisibilityMode"
 
     private let defaults: UserDefaults
 
@@ -106,6 +115,14 @@ public final class HUDPreferences {
 
     public func saveTransparency(_ value: Int) {
         defaults.set(HUDBackgroundAppearance.normalize(Double(value)), forKey: Self.transparencyKey)
+    }
+
+    public func loadIconVisibilityMode() -> HUDIconVisibilityMode {
+        defaults.string(forKey: Self.iconVisibilityKey).flatMap(HUDIconVisibilityMode.init(rawValue:)) ?? .automatic
+    }
+
+    public func saveIconVisibilityMode(_ mode: HUDIconVisibilityMode) {
+        defaults.set(mode.rawValue, forKey: Self.iconVisibilityKey)
     }
 
     public func loadTitleColor() -> HUDTitleColor {

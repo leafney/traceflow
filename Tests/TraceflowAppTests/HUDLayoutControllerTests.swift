@@ -6,6 +6,203 @@ import TraceflowCore
 
 @MainActor
 final class HUDLayoutControllerTests: XCTestCase {
+    func testIconModeReversalStartsAtCurrentVisibleStateAndLatestChoiceWins() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.previewTransparency(0)
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        controller.show()
+        let panel = try XCTUnwrap(controller.window)
+        fixture.model.hudIconVisibilityMode = .alwaysHide
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let fraction = fixture.model.hudIconFraction
+        let frame = panel.frame
+        fixture.model.hudIconVisibilityMode = .alwaysShow
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            XCTAssertEqual(panel.frame, frame, "反向过渡不能跳到旧动画终态")
+            XCTAssertEqual(fixture.model.hudIconFraction, fraction)
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(panel.frame.size, CGSize(width: 420, height: 40))
+        XCTAssertEqual(fixture.model.hudIconFraction, 1)
+        fixture.model.hudIconVisibilityMode = .automatic
+        XCTAssertEqual(panel.frame.size, CGSize(width: 420, height: 40))
+        XCTAssertEqual(fixture.model.hudIconFraction, 1)
+        for mode in [HUDIconVisibilityMode.alwaysHide, .alwaysShow, .automatic, .alwaysHide] {
+            fixture.model.hudIconVisibilityMode = mode
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(controller.window === panel)
+        XCTAssertEqual(panel.frame.size, CGSize(width: 380, height: 40))
+        XCTAssertEqual(fixture.model.hudIconFraction, 0)
+        XCTAssertEqual(HUDPreferences(defaults: fixture.defaults).loadIconVisibilityMode(), .alwaysHide)
+    }
+
+    func testIconModeDuringDragDefersSizeAndPersistsOnlyNormalDrag() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.previewTransparency(0)
+        for layout in HUDLayoutMode.allCases {
+            fixture.model.hudLayoutMode = layout
+            fixture.model.hudIconVisibilityMode = .alwaysShow
+            let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+            controller.show()
+            let panel = try XCTUnwrap(controller.window)
+            let parts = try contentParts(panel)
+            let store = HUDPositionStore(defaults: fixture.defaults)
+            let saved = store.loadResult(layout)
+            parts.container.dragStarted?()
+            panel.setFrameOrigin(CGPoint(x: panel.frame.minX + 10, y: panel.frame.minY - 10))
+            let dragged = panel.frame
+            for mode in [HUDIconVisibilityMode.alwaysHide, .alwaysShow, .alwaysHide] {
+                fixture.model.hudIconVisibilityMode = mode
+                XCTAssertEqual(panel.frame, dragged)
+                XCTAssertEqual(fixture.model.hudIconFraction, 1)
+                XCTAssertEqual(store.loadResult(layout), saved)
+            }
+            XCTAssertEqual(HUDPreferences(defaults: fixture.defaults).loadIconVisibilityMode(), .alwaysHide)
+            parts.container.dragFinished?(true)
+            let committed = store.loadResult(layout)
+            XCTAssertNotEqual(committed, saved, "正常拖动依然保存位置")
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertEqual(panel.frame.size, layout.isHorizontal ? CGSize(width: 380, height: 40) : CGSize(width: 40, height: 380))
+            XCTAssertEqual(fixture.model.hudIconFraction, 0)
+            XCTAssertEqual(store.loadResult(layout), committed, "尺寸动画不覆盖已保存的拖动位置")
+            controller.hide()
+        }
+    }
+
+    func testHiddenAndPinnedHUDKeepsLatestIconModeWhenShown() throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.previewTransparency(100)
+        fixture.model.isHUDPinned = true
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        let panel = try XCTUnwrap(controller.window)
+        for mode in [HUDIconVisibilityMode.alwaysShow, .alwaysHide, .alwaysShow] {
+            controller.hide()
+            fixture.model.hudIconVisibilityMode = mode
+            XCTAssertFalse(panel.isVisible)
+            controller.show()
+            XCTAssertTrue(panel.isVisible)
+            XCTAssertTrue(panel.ignoresMouseEvents)
+            XCTAssertEqual(panel.frame.width, mode == .alwaysShow ? 420 : 380)
+            XCTAssertEqual(fixture.model.hudIconFraction, mode == .alwaysShow ? 1 : 0)
+        }
+    }
+
+    func testEveryIconModeSurvivesLayoutAndSessionWindowReplacement() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.autoEnableNewSessions = true
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        controller.show()
+        for (mode, transparency, fraction) in [
+            (HUDIconVisibilityMode.alwaysShow, 100.0, 1.0), (.alwaysHide, 0, 0.0),
+            (.automatic, 79, 1.0), (.automatic, 80, 0.0)
+        ] {
+            fixture.model.previewTransparency(transparency)
+            fixture.model.hudIconVisibilityMode = mode
+            try await Task.sleep(nanoseconds: 300_000_000)
+            for layout in HUDLayoutMode.allCases {
+                fixture.model.hudLayoutMode = layout
+                controller.switchLayout(to: layout)
+                let placeholder = try XCTUnwrap(controller.window)
+                let expectedSize = layout.isHorizontal
+                    ? CGSize(width: fraction == 1 ? 420 : 380, height: 40)
+                    : CGSize(width: 40, height: fraction == 1 ? 420 : 380)
+                XCTAssertEqual(placeholder.frame.size, expectedSize)
+                XCTAssertEqual(fixture.model.hudIconFraction, fraction)
+                let records = HUDLayoutMode.allCases.map { HUDPositionStore(defaults: fixture.defaults).loadResult($0) }
+                let id = mode.rawValue + "-" + String(Int(transparency)) + "-" + layout.rawValue
+                try await fixture.hook(id, event: .userPromptSubmit)
+                try await fixture.waitUntil { controller.window !== placeholder }
+                let sessionPanel = try XCTUnwrap(controller.window)
+                assertRetired(placeholder)
+                XCTAssertEqual(sessionPanel.frame, placeholder.frame)
+                XCTAssertEqual(sessionPanel.frame.size, expectedSize)
+                XCTAssertEqual(fixture.model.hudIconFraction, fraction)
+                XCTAssertFalse(sessionPanel.hasShadow)
+                fixture.model.setIncluded(false, sessionID: id)
+                try await fixture.waitUntil { controller.window !== sessionPanel }
+                let restored = try XCTUnwrap(controller.window)
+                assertRetired(sessionPanel)
+                XCTAssertEqual(restored.frame.size, expectedSize)
+                XCTAssertEqual(fixture.model.hudIconFraction, fraction)
+                XCTAssertEqual(fixture.model.hudIconVisibilityMode, mode)
+                XCTAssertEqual(HUDLayoutMode.allCases.map { HUDPositionStore(defaults: fixture.defaults).loadResult($0) }, records)
+            }
+        }
+    }
+
+    func testIconTransitionInterruptedByLayoutAndSessionUsesLatestTarget() async throws {
+        _ = NSApplication.shared
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要可用桌面屏幕") }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.previewTransparency(0)
+        fixture.model.autoEnableNewSessions = true
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        controller.show()
+        fixture.model.hudIconVisibilityMode = .alwaysHide
+        fixture.model.hudLayoutMode = .verticalTop
+        controller.switchLayout(to: .verticalTop)
+        XCTAssertEqual(controller.window?.frame.size, CGSize(width: 40, height: 380))
+        XCTAssertEqual(fixture.model.hudIconFraction, 0)
+        fixture.model.hudIconVisibilityMode = .alwaysShow
+        let placeholder = try XCTUnwrap(controller.window)
+        try await fixture.hook("transition", event: .userPromptSubmit)
+        try await fixture.waitUntil { controller.window !== placeholder }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(controller.window?.frame.size, CGSize(width: 40, height: 420))
+        XCTAssertEqual(fixture.model.hudIconFraction, 1)
+        fixture.model.hudIconVisibilityMode = .alwaysHide
+        fixture.model.setIncluded(false, sessionID: "transition")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNil(fixture.model.displayedSession)
+        XCTAssertEqual(controller.window?.frame.size, CGSize(width: 40, height: 380))
+        XCTAssertEqual(fixture.model.hudIconFraction, 0)
+    }
+
+    func testScreenCompositeForIconModesAndRapidLayoutChanges() async throws {
+        _ = NSApplication.shared
+        let screen = try HUDScreenFixture(color: .white)
+        defer { screen.close() }
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        try screen.preparePositions(defaults: fixture.defaults)
+        let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+        defer { controller.hide() }
+        controller.show()
+        for layout in HUDLayoutMode.allCases {
+            fixture.model.hudLayoutMode = layout
+            controller.switchLayout(to: layout)
+            for (mode, transparency) in [(HUDIconVisibilityMode.automatic, 79.0), (.automatic, 80), (.alwaysShow, 100), (.alwaysHide, 0)] {
+                fixture.model.previewTransparency(transparency)
+                fixture.model.hudIconVisibilityMode = mode
+                try await screen.assertSettled(controller, fixture: fixture)
+            }
+        }
+        for layout in HUDLayoutMode.allCases {
+            fixture.model.hudIconVisibilityMode = .alwaysShow
+            fixture.model.hudLayoutMode = layout
+            fixture.model.hudIconVisibilityMode = .alwaysHide
+        }
+        try await screen.assertSettled(controller, fixture: fixture)
+    }
+
     func testInitialIconModeOverridesTransparencyAndPersistsWithoutJumpingAnimation() throws {
         let fixture = try SessionIntegrationFixture()
         defer { fixture.cleanUp() }

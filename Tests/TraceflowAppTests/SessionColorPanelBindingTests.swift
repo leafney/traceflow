@@ -65,6 +65,23 @@ final class SessionColorPanelBindingTests: XCTestCase {
         XCTAssertEqual(fixture.model.markerColorErrorMessage, "颜色保存失败，未更改会话颜色")
     }
 
+    func testClosingSettingsEndsColorBinding() async throws {
+        _ = NSApplication.shared
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.hook("a", event: .sessionStart)
+        try fixture.writeThreads(["a"])
+        fixture.model.openSettingsWindow()
+        try await fixture.waitUntil { !fixture.model.isDiscoveringRecentSessions }
+        fixture.model.sessionColorPanel.open(sessionID: "a")
+        let settings = try XCTUnwrap(NSApplication.shared.windows.first {
+            $0.title == "Traceflow 设置" && $0.isVisible
+        })
+        settings.close()
+        XCTAssertNil(fixture.model.sessionColorPanel.sessionID)
+        XCTAssertFalse(NSColorPanel.shared.isVisible)
+    }
+
     private func sendPanelAction(_ panel: NSColorPanel, controller: SessionColorPanelController) throws {
         let action = #selector(SessionColorPanelTarget.colorChanged(_:))
         let target = try XCTUnwrap(controller.target)

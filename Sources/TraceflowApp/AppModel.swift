@@ -84,6 +84,7 @@ final class AppModel: ObservableObject {
     private var scheduler = CarouselScheduler()
     private var server: UnixSocketServer?
     private var nextRotationIndex = 0
+    lazy var sessionColorPanel = SessionColorPanelController(model: self)
     private var settingsController: NSWindowController?
     private var pendingHealthCheckID: String?
     private var discovery = SessionDiscoveryCoordinator()
@@ -175,7 +176,10 @@ final class AppModel: ObservableObject {
         if settingsController == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 680), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             settingsCloseObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.setTransparencyEditing(false) }
+                MainActor.assumeIsolated {
+                    self?.setTransparencyEditing(false)
+                    self?.sessionColorPanel.close()
+                }
             }
             window.title = "Traceflow 设置"
             window.contentView = NSHostingView(rootView: SettingsView(model: self))

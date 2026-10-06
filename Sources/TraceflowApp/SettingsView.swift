@@ -12,6 +12,12 @@ struct SettingsView: View {
             Section("常规") {
                 Toggle("显示 HUD", isOn: $model.isHUDVisible)
                 Toggle("钉住 HUD", isOn: $model.isHUDPinned)
+                Picker("HUD 显示模式", selection: $model.hudDisplayStyle) {
+                    ForEach(HUDDisplayStyle.allCases) { style in
+                        Text(style.menuTitle).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
                 Picker("HUD 布局", selection: $model.hudLayoutMode) {
                     Text("横向左").tag(HUDLayoutMode.horizontalLeft)
                     Text("横向右").tag(HUDLayoutMode.horizontalRight)
@@ -51,6 +57,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .accessibilityLabel("图标区域")
+                .disabled(model.hudDisplayStyle == .compact)
                 Text("自动：背景透明度达到 80% 时隐藏图标区域。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -67,6 +74,11 @@ struct SettingsView: View {
                     .accessibilityLabel("标题颜色")
                     .accessibilityValue(model.hudTitleColor == .white ? "白色" : "黑色")
                     Text("白色")
+                }
+                .disabled(model.hudDisplayStyle == .compact)
+                if model.hudDisplayStyle == .compact {
+                    Text("图标区域与标题颜色仅标准模式生效")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Button("恢复 HUD 默认位置") { model.resetHUDPosition() }
             }
@@ -108,6 +120,9 @@ struct SettingsView: View {
                         .accessibilityHint("仅自动启用此后新发现的会话；待机时不展示，活动后参与 HUD；手动同步历史会话除外")
                         .help("仅自动启用此后新发现的会话；待机时不展示，活动后参与 HUD；手动同步历史会话除外")
                 }
+            }
+            if let message = model.markerColorErrorMessage {
+                Text(message).font(.caption).foregroundStyle(.red)
             }
             Section("会话区") {
                 HStack {
@@ -240,6 +255,7 @@ struct SettingsView: View {
         let title = session.sessionListTitle
         let project = session.persisted.projectName ?? "未知项目"
         HStack(spacing: 10) {
+            markerColorButton(session)
             editableSessionArea(session) {
                 Text("\(project) · \(session.persisted.lastActivityAt?.formatted() ?? "未知时间") · \(String(session.id.prefix(8)))")
                     .font(.caption)
@@ -271,6 +287,7 @@ struct SettingsView: View {
             .labelsHidden()
             .disabled(!model.sessionDataHealth.allowsSaving)
             .accessibilityLabel("\(title) 参与 HUD")
+            markerColorButton(session)
             editableSessionArea(session) {
                 Text("\(String(session.id.prefix(8))) · \(session.persisted.lastUpdatedAt.formatted())")
                     .font(.caption)
@@ -287,6 +304,17 @@ struct SettingsView: View {
             .accessibilityLabel("删除会话 \(title)")
             .disabled(!model.sessionDataHealth.allowsSaving)
         }
+    }
+
+    private func markerColorButton(_ session: SessionSnapshot) -> some View {
+        Button { model.sessionColorPanel.open(sessionID: session.id) } label: {
+            SessionMarkerView(colorHex: session.persisted.markerColorHex)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("修改会话颜色：\(session.sessionListTitle)")
+        .disabled(!model.sessionDataHealth.allowsSaving)
     }
 
     private func editableSessionArea<Detail: View>(

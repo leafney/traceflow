@@ -171,6 +171,23 @@ final class HUDMenuTests: XCTestCase {
         XCTAssertFalse(panel.window?.isVisible == true)
     }
 
+    func testDisplayStyleMenuSharesStateAndRestoresPreference() async throws {
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        let delegate = AppDelegate(model: fixture.model)
+        let menu = delegate.makeMenu()
+        delegate.observeHUDState(panel: nil)
+        let styles = try XCTUnwrap(menu.item(withTitle: "HUD 显示模式")?.submenu)
+        XCTAssertEqual(styles.items.map(\.state), [.on, .off])
+        styles.performActionForItem(at: 1)
+        try await fixture.waitUntil { styles.items[1].state == .on }
+        XCTAssertEqual(fixture.model.hudDisplayStyle, .compact)
+        XCTAssertEqual(AppModel(defaults: fixture.defaults).hudDisplayStyle, .compact)
+        fixture.model.hudDisplayStyle = .standard
+        try await fixture.waitUntil { styles.items[0].state == .on }
+        XCTAssertEqual(styles.items.map(\.state), [.on, .off])
+    }
+
     func testInitialMenuStructureAndCheckmarks() throws {
         _ = NSApplication.shared
         let domain = "HUDMenuStructure.\(UUID())"
@@ -179,11 +196,11 @@ final class HUDMenuTests: XCTestCase {
         let delegate = AppDelegate(model: AppModel(defaults: defaults))
         let menu = delegate.makeMenu()
 
-        XCTAssertEqual(menu.items.map(\.title), ["显示 HUD", "钉住 HUD", "HUD 布局", "设置…", "", "退出 Traceflow"])
+        XCTAssertEqual(menu.items.map(\.title), ["显示 HUD", "钉住 HUD", "HUD 布局", "HUD 显示模式", "设置…", "", "退出 Traceflow"])
         XCTAssertEqual(menu.items[0].state, .on)
         XCTAssertEqual(menu.items[1].state, .off)
         XCTAssertEqual(menu.items[3].keyEquivalent, "")
-        XCTAssertEqual(menu.items[5].keyEquivalent, "q")
+        XCTAssertEqual(menu.items[6].keyEquivalent, "q")
         let parent = menu.items[2]
         XCTAssertEqual(parent.state, .off)
         let children = try XCTUnwrap(parent.submenu?.items)

@@ -1,6 +1,12 @@
 import Foundation
 import CoreFoundation
 
+public enum HUDDisplayStyle: String, CaseIterable, Identifiable, Sendable {
+    case standard, compact
+    public var id: String { rawValue }
+    public var menuTitle: String { self == .standard ? "标准" : "精简" }
+}
+
 public enum HUDRegion: String, Identifiable, Sendable {
     case icon, title, lights
     public var id: String { rawValue }
@@ -33,6 +39,14 @@ public enum HUDLayoutMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum HUDIconVisibilityMode: String, CaseIterable, Identifiable, Sendable {
+    case automatic
+    case alwaysShow
+    case alwaysHide
+
+    public var id: String { rawValue }
+}
+
 public enum HUDGlowMode: String, CaseIterable, Identifiable, Sendable {
     case standard
     case strong
@@ -48,17 +62,27 @@ public enum HUDTitleColor: String, CaseIterable, Identifiable, Sendable {
 }
 
 public final class HUDPreferences {
+    public static let displayStyleKey = "hudDisplayStyle"
     public static let layoutKey = "hudLayoutMode"
     public static let glowKey = "hudGlowMode"
     public static let legacyGlowKey = "glowStrength"
     public static let transparencyKey = "hudBackgroundTransparency"
     public static let pinnedKey = "hudPinned"
     public static let titleColorKey = "hudTitleColor"
+    public static let iconVisibilityKey = "hudIconVisibilityMode"
 
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults) {
         self.defaults = defaults
+    }
+
+    public func loadDisplayStyle() -> HUDDisplayStyle {
+        defaults.string(forKey: Self.displayStyleKey).flatMap(HUDDisplayStyle.init(rawValue:)) ?? .standard
+    }
+
+    public func saveDisplayStyle(_ style: HUDDisplayStyle) {
+        defaults.set(style.rawValue, forKey: Self.displayStyleKey)
     }
 
     public func loadLayoutMode() -> HUDLayoutMode {
@@ -106,6 +130,14 @@ public final class HUDPreferences {
 
     public func saveTransparency(_ value: Int) {
         defaults.set(HUDBackgroundAppearance.normalize(Double(value)), forKey: Self.transparencyKey)
+    }
+
+    public func loadIconVisibilityMode() -> HUDIconVisibilityMode {
+        defaults.string(forKey: Self.iconVisibilityKey).flatMap(HUDIconVisibilityMode.init(rawValue:)) ?? .automatic
+    }
+
+    public func saveIconVisibilityMode(_ mode: HUDIconVisibilityMode) {
+        defaults.set(mode.rawValue, forKey: Self.iconVisibilityKey)
     }
 
     public func loadTitleColor() -> HUDTitleColor {

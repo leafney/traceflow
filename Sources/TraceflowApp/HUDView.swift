@@ -3,18 +3,40 @@ import TraceflowCore
 
 struct HUDView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var presentation: HUDWindowPresentation
+    // Layout belongs to this window's lifetime. The model can publish the next
+    // layout before the controller retires this hosting tree on the main queue.
+    let style: HUDDisplayStyle
+    let layout: HUDLayoutMode
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
+    init(model: AppModel) {
+        self.init(model: model, layout: model.hudLayoutMode,
+                  presentation: HUDWindowPresentation(model: model))
+    }
+
+    init(model: AppModel, layout: HUDLayoutMode, style: HUDDisplayStyle? = nil, presentation: HUDWindowPresentation) {
+        _model = ObservedObject(wrappedValue: model)
+        _presentation = ObservedObject(wrappedValue: presentation)
+        self.layout = layout
+        self.style = style ?? model.hudDisplayStyle
+    }
+
+    // displayTitle includes the project prefix; the HUD shows only the session.
+    var displayedTitle: String {
+        presentation.displayedSession?.sessionListTitle ?? "Traceflow"
+    }
+
     var body: some View {
         Group {
-            switch model.hudLayoutMode {
+            switch layout {
             case .horizontalLeft, .horizontalRight: horizontalContent
             case .verticalTop, .verticalBottom: verticalContent
             }
         }
-        .frame(width: model.hudLayoutMode.isHorizontal ? (380 + 40 * model.hudIconFraction) : HUDMetrics.shortAxis,
-               height: model.hudLayoutMode.isHorizontal ? HUDMetrics.shortAxis : (380 + 40 * model.hudIconFraction))
+        .frame(width: layout.isHorizontal ? (style == .compact ? HUDMetrics.compactLongAxis : 380 + 40 * model.hudIconFraction) : HUDMetrics.shortAxis,
+               height: layout.isHorizontal ? HUDMetrics.shortAxis : (style == .compact ? HUDMetrics.compactLongAxis : 380 + 40 * model.hudIconFraction))
         .overlay(Capsule().stroke(.white.opacity((colorScheme == .dark ? 0.16 : 0.24) * HUDBackgroundAppearance(model.hudBackgroundTransparency).backgroundAlpha), lineWidth: 0.5))
         .contentShape(Capsule())
         .accessibilityElement(children: .ignore)
@@ -23,24 +45,21 @@ struct HUDView: View {
 
     private var horizontalContent: some View {
         HStack(spacing: 0) {
-            ForEach(model.hudLayoutMode.regions) { region in
+            ForEach(layout.regions) { region in
                 switch region {
                 case .lights:
                     HStack(spacing: HUDMetrics.lightSpacing) { lights }
                         .frame(width: HUDMetrics.lightAreaLength, height: HUDMetrics.shortAxis)
                 case .icon:
-                    icon.opacity(model.hudIconFraction)
-                        .frame(width: HUDMetrics.iconLength * model.hudIconFraction, height: HUDMetrics.shortAxis).clipped()
-                case .title:
-                    ZStack {
-                        title.frame(width: HUDMetrics.titleTextLength, alignment: .leading)
-                            .compositingGroup()
-                            .id(model.displayedSession?.id ?? "placeholder")
-                            .transition(titleTransition(vertical: false))
+                    if style == .compact {
+                        SessionMarkerView(colorHex: presentation.displayedSession?.persisted.markerColorHex)
+                            .frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
+                    } else {
+                        icon.opacity(model.hudIconFraction)
+                            .frame(width: HUDMetrics.iconLength * model.hudIconFraction, height: HUDMetrics.shortAxis).clipped()
                     }
-                    .frame(width: HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2, height: HUDMetrics.shortAxis)
-                    .clipped()
-                    .transaction { $0.animation = titleAnimation }
+                case .title:
+                    if style == .standard { titleRegion(vertical: false) }
                 }
             }
         }
@@ -48,25 +67,21 @@ struct HUDView: View {
 
     private var verticalContent: some View {
         VStack(spacing: 0) {
-            ForEach(model.hudLayoutMode.regions) { region in
+            ForEach(layout.regions) { region in
                 switch region {
                 case .lights:
                     VStack(spacing: HUDMetrics.lightSpacing) { lights }
                         .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.lightAreaLength)
                 case .icon:
-                    icon.opacity(model.hudIconFraction)
-                        .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
-                case .title:
-                    ZStack {
-                        VerticalMixedTitleView(title: model.displayedSession?.displayTitle ?? "Traceflow", color: model.hudTitleColor)
-                            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
-                            .compositingGroup()
-                            .id(model.displayedSession?.id ?? "placeholder")
-                            .transition(titleTransition(vertical: true))
+                    if style == .compact {
+                        SessionMarkerView(colorHex: presentation.displayedSession?.persisted.markerColorHex)
+                            .frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
+                    } else {
+                        icon.opacity(model.hudIconFraction)
+                            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
                     }
-                    .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2)
-                    .clipped()
-                    .transaction { $0.animation = titleAnimation }
+                case .title:
+                    if style == .standard { titleRegion(vertical: true) }
                 }
             }
         }
@@ -77,18 +92,47 @@ struct HUDView: View {
             .font(.system(size: 17, weight: .semibold))
     }
 
-    private var title: some View {
-        Text(model.displayedSession?.displayTitle ?? "Traceflow")
-            .font(.system(size: 13, weight: .medium, design: .rounded))
-            .foregroundStyle(model.hudTitleColor == .white ? Color.white : Color.black)
-            .lineLimit(1)
-            .truncationMode(.tail)
+    @ViewBuilder
+    private func titleRegion(vertical: Bool) -> some View {
+        Group {
+            if let session = presentation.displayedSession {
+                ZStack {
+                    // Snapshot the text so outgoing content never reads a new
+                    // placeholder from the model during a transition.
+                    titleContent(session.sessionListTitle, vertical: vertical)
+                        .id(session.id)
+                        .transition(titleTransition(vertical: vertical))
+                }
+                .transaction { $0.animation = titleAnimation }
+            } else {
+                // The default name is static and cannot become an outgoing session.
+                titleContent("Traceflow", vertical: vertical)
+            }
+        }
+        .frame(width: vertical ? HUDMetrics.shortAxis : HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2,
+               height: vertical ? HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2 : HUDMetrics.shortAxis)
+        .clipped()
+    }
+
+    @ViewBuilder
+    private func titleContent(_ text: String, vertical: Bool) -> some View {
+        if vertical {
+            VerticalMixedTitleView(title: text, color: model.hudTitleColor)
+                .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
+        } else {
+            Text(text)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(model.hudTitleColor == .white ? Color.white : Color.black)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: HUDMetrics.titleTextLength, alignment: .leading)
+        }
     }
 
     private var accessibilityDescription: String {
-        let title = model.displayedSession?.displayTitle ?? "Traceflow"
+        let title = displayedTitle
         let state: String
-        switch model.displayedSession?.state {
+        switch presentation.displayedSession?.state {
         case .attention: state = "需要处理"
         case .running: state = "运行中"
         case .completed: state = "已完成"
@@ -99,9 +143,9 @@ struct HUDView: View {
     }
 
     @ViewBuilder private var lights: some View {
-        StatusLight(kind: .attention, active: model.displayedSession?.state == .attention, glow: model.hudGlowMode, reduceMotion: reduceMotion)
-        StatusLight(kind: .completed, active: model.displayedSession?.state == .completed, glow: model.hudGlowMode, reduceMotion: reduceMotion)
-        StatusLight(kind: .running, active: model.displayedSession?.state == .running, glow: model.hudGlowMode, reduceMotion: reduceMotion)
+        StatusLight(kind: .attention, active: presentation.displayedSession?.state == .attention, glow: model.hudGlowMode, reduceMotion: reduceMotion)
+        StatusLight(kind: .completed, active: presentation.displayedSession?.state == .completed, glow: model.hudGlowMode, reduceMotion: reduceMotion)
+        StatusLight(kind: .running, active: presentation.displayedSession?.state == .running, glow: model.hudGlowMode, reduceMotion: reduceMotion)
     }
 
     private func titleTransition(vertical: Bool) -> AnyTransition {
@@ -179,67 +223,54 @@ struct StatusLightFrame: View {
     let glow: HUDGlowMode
     let visual: HUDLightVisualParameters
 
+    private var bodyRadius: CGFloat {
+        let base = HUDMetrics.lightDiameter / 2
+        return active ? base * CGFloat(visual.scale) : base
+    }
+
+    private var bodyOpacity: Double { active ? visual.bodyOpacity : 0.18 }
+    private var haloProgress: Double { active ? min(1, max(0, visual.glowIntensity)) : 0 }
+    private var haloWidth: CGFloat { (glow == .strong ? 7 : 4) * CGFloat(haloProgress) }
+
     var body: some View {
         ZStack {
-                if active {
-                    switch glow {
-                    case .standard:
-                        glowLayer(diameter: 40, blurRadius: 12,
-                                  peakOpacity: 0.28, intensity: visual.glowIntensity)
-                        glowLayer(diameter: 34, blurRadius: 6,
-                                  peakOpacity: 0.50, intensity: visual.glowIntensity)
-                    case .strong:
-                        enhancedGlow(intensity: visual.glowIntensity)
-                    }
-                }
-                Circle()
-                    .fill(kind.color.opacity(visual.bodyOpacity))
-                    .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
+            if active && haloProgress > 0 {
+                synchronizedHalo
             }
-            .scaleEffect(visual.scale)
-            .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
+            Circle()
+                .fill(kind.color.opacity(bodyOpacity))
+                .frame(width: bodyRadius * 2, height: bodyRadius * 2)
+        }
+        .frame(width: HUDMetrics.lightDiameter, height: HUDMetrics.lightDiameter)
         .accessibilityHidden(true)
     }
 
-    private func enhancedGlow(intensity: Double) -> some View {
-        // These opacities already include the approved 30% reduction.
-        ZStack {
-            Circle()
-                .fill(RadialGradient(
-                    stops: [
-                        .init(color: kind.color.opacity(0.56 * intensity), location: 0),
-                        .init(color: kind.color.opacity(0.455 * intensity), location: 0.28),
-                        .init(color: kind.color.opacity(0.175 * intensity), location: 0.6),
-                        .init(color: .clear, location: 1)
-                    ],
-                    center: .center,
-                    startRadius: 11,
-                    endRadius: 20
-                ))
-                .frame(width: 40, height: 40)
+    private var synchronizedHalo: some View {
+        let radius = bodyRadius
+        let width = haloWidth
+        let outer = radius + width
+        let inner = max(0, radius - 1)
+        let q = haloProgress
+        let strong = glow == .strong
+        // Strong peaks already include the approved 30% reduction.
+        let edge: Double = strong ? 0.63 : 0.35
+        let near: Double = strong ? 0.56 : 0.28
+        let far: Double = strong ? 0.175 : 0.12
 
-            Circle()
-                .stroke(kind.color.opacity(0.63 * intensity), lineWidth: 3)
-                .frame(width: 27, height: 27)
-                .blur(radius: 1.4)
-        }
-        .frame(width: 40, height: 40)
-    }
-
-    private func glowLayer(diameter: CGFloat, blurRadius: CGFloat, peakOpacity: Double, intensity: Double) -> some View {
-        Circle()
+        return Circle()
             .fill(RadialGradient(
                 stops: [
-                    .init(color: kind.color.opacity(peakOpacity * intensity), location: 0),
-                    .init(color: kind.color.opacity(peakOpacity * intensity * 0.58), location: 0.30),
-                    .init(color: .clear, location: 0.58)
+                    .init(color: .clear, location: 0),
+                    .init(color: .clear, location: inner / outer),
+                    .init(color: kind.color.opacity(edge * q), location: radius / outer),
+                    .init(color: kind.color.opacity(near * q), location: (radius + 0.28 * width) / outer),
+                    .init(color: kind.color.opacity(far * q), location: (radius + 0.60 * width) / outer),
+                    .init(color: .clear, location: 1)
                 ],
                 center: .center,
                 startRadius: 0,
-                endRadius: diameter / 2
+                endRadius: outer
             ))
-            .frame(width: diameter, height: diameter)
-            .blur(radius: blurRadius)
+            .frame(width: outer * 2, height: outer * 2)
     }
-
 }

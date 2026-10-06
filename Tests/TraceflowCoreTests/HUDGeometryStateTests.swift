@@ -2,6 +2,47 @@ import XCTest
 @testable import TraceflowCore
 
 final class HUDGeometryStateTests: XCTestCase {
+    func testManualModeRoundTripsAtScreenEdgesPreserveReference() throws {
+        let visible = CGRect(x: 0, y: 0, width: 1200, height: 800)
+        for layout in HUDLayoutMode.allCases {
+            let reference = CGRect(x: -20, y: 500,
+                                   width: layout.isHorizontal ? 420 : 40,
+                                   height: layout.isHorizontal ? 40 : 420)
+            var state = HUDGeometryState(transparency: 100, pinned: false, iconVisibilityMode: .alwaysShow)
+            state.restoreReference(reference)
+            let expanded = try XCTUnwrap(state.target(layout: layout, visible: visible))
+            var collapsed: CGRect?
+            for _ in 0..<3 {
+                state.setIconVisibilityMode(.alwaysHide)
+                let current = try XCTUnwrap(state.target(layout: layout, visible: visible))
+                XCTAssertEqual(current.size, layout.isHorizontal ? CGSize(width: 380, height: 40) : CGSize(width: 40, height: 380))
+                if let collapsed { XCTAssertEqual(current, collapsed) }
+                collapsed = current
+                state.setTransparency(0)
+                XCTAssertEqual(state.target(layout: layout, visible: visible), current)
+                state.setIconVisibilityMode(.alwaysShow)
+                XCTAssertEqual(state.target(layout: layout, visible: visible), expanded)
+                XCTAssertEqual(state.reference, reference)
+            }
+        }
+    }
+
+    func testDragDefersLatestIconModeUntilVisibleShapeIsCommitted() {
+        var state = HUDGeometryState(transparency: 0, pinned: false)
+        state.restoreReference(CGRect(x: 100, y: 200, width: 420, height: 40))
+        XCTAssertTrue(state.beginDrag())
+        for mode in [HUDIconVisibilityMode.alwaysHide, .alwaysShow, .alwaysHide] {
+            state.setIconVisibilityMode(mode)
+            XCTAssertNil(state.target(layout: .horizontalRight, visible: nil))
+        }
+        let dragged = CGRect(x: 200, y: 250, width: 420, height: 40)
+        XCTAssertTrue(state.finishDrag(frame: dragged, moved: true, layout: .horizontalRight))
+        XCTAssertEqual(state.reference, dragged)
+        XCTAssertEqual(state.target(layout: .horizontalRight, visible: nil), CGRect(x: 240, y: 250, width: 380, height: 40))
+        XCTAssertEqual(state.transparency, 0)
+        XCTAssertEqual(state.iconVisibilityMode, .alwaysHide)
+    }
+
     func testRepeatedEdgeExpansionAndCollapseKeepsOriginalReference() throws {
         let visible = CGRect(x: 0, y: 0, width: 1200, height: 800)
         for layout in HUDLayoutMode.allCases {

@@ -6,6 +6,46 @@ import TraceflowCore
 
 @MainActor
 final class HUDMenuTests: XCTestCase {
+    func testInstalledMenuUsesCurrentWindowAfterTitleModeHandoff() async throws {
+        _ = NSApplication.shared
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        fixture.model.autoEnableNewSessions = true
+        let delegate = AppDelegate(model: fixture.model, defaults: fixture.defaults)
+        delegate.installHUDControls()
+        defer {
+            delegate.panelController?.hide()
+            if let item = delegate.statusItem { NSStatusBar.system.removeStatusItem(item) }
+        }
+        let menu = try XCTUnwrap(delegate.statusItem?.menu)
+        fixture.model.isHUDVisible = true
+        fixture.model.isHUDPinned = true
+        let original = try XCTUnwrap(delegate.panelController?.window)
+        try await fixture.hook("first", event: .userPromptSubmit)
+        try await fixture.waitUntil { delegate.panelController?.window !== original }
+        let session = try XCTUnwrap(delegate.panelController?.window)
+        menu.update()
+        XCTAssertFalse(original.isVisible)
+        XCTAssertNil(original.contentView)
+        XCTAssertTrue(session.isVisible)
+        XCTAssertTrue(session.ignoresMouseEvents)
+        XCTAssertEqual(menu.items[0].state, .on)
+        XCTAssertEqual(menu.items[1].state, .on)
+        fixture.model.setIncluded(false, sessionID: "first")
+        try await fixture.waitUntil { delegate.panelController?.window !== session }
+        let placeholder = try XCTUnwrap(delegate.panelController?.window)
+        menu.performActionForItem(at: 0)
+        menu.performActionForItem(at: 1)
+        // Menu observers intentionally refresh after Published commits; wait
+        // for that existing asynchronous path rather than asserting in willSet.
+        try await fixture.waitUntil { menu.items[0].state == .off && menu.items[1].state == .off }
+        menu.update()
+        XCTAssertFalse(placeholder.isVisible)
+        XCTAssertFalse(placeholder.ignoresMouseEvents)
+        XCTAssertEqual(menu.items[0].state, .off)
+        XCTAssertEqual(menu.items[1].state, .off)
+    }
+
     func testInstalledStatusMenuTracksSettingsAndWindow() async throws {
         _ = NSApplication.shared
         guard !NSScreen.screens.isEmpty else { throw XCTSkip("需要桌面屏幕") }
@@ -21,7 +61,7 @@ final class HUDMenuTests: XCTestCase {
             if let item = delegate.statusItem { NSStatusBar.system.removeStatusItem(item) }
         }
         let menu = try XCTUnwrap(delegate.statusItem?.menu)
-        let panel = try XCTUnwrap(delegate.panelController?.window)
+        var panel = try XCTUnwrap(delegate.panelController?.window)
         menu.update()
         XCTAssertEqual(menu.items[0].state, .off)
         XCTAssertFalse(panel.isVisible)
@@ -33,6 +73,11 @@ final class HUDMenuTests: XCTestCase {
         let updated = expectation(description: "窗口布局和菜单状态已更新")
         DispatchQueue.main.async { updated.fulfill() }
         await fulfillment(of: [updated], timeout: 2)
+        let previousPanel = panel
+        panel = try XCTUnwrap(delegate.panelController?.window)
+        XCTAssertFalse(panel === previousPanel)
+        XCTAssertFalse(previousPanel.isVisible)
+        XCTAssertNil(previousPanel.contentView)
         menu.update()
         XCTAssertTrue(panel.isVisible)
         XCTAssertTrue(panel.ignoresMouseEvents)
@@ -126,6 +171,23 @@ final class HUDMenuTests: XCTestCase {
         XCTAssertFalse(panel.window?.isVisible == true)
     }
 
+    func testDisplayStyleMenuSharesStateAndRestoresPreference() async throws {
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        let delegate = AppDelegate(model: fixture.model)
+        let menu = delegate.makeMenu()
+        delegate.observeHUDState(panel: nil)
+        let styles = try XCTUnwrap(menu.item(withTitle: "HUD 显示模式")?.submenu)
+        XCTAssertEqual(styles.items.map(\.state), [.on, .off])
+        styles.performActionForItem(at: 1)
+        try await fixture.waitUntil { styles.items[1].state == .on }
+        XCTAssertEqual(fixture.model.hudDisplayStyle, .compact)
+        XCTAssertEqual(AppModel(defaults: fixture.defaults).hudDisplayStyle, .compact)
+        fixture.model.hudDisplayStyle = .standard
+        try await fixture.waitUntil { styles.items[0].state == .on }
+        XCTAssertEqual(styles.items.map(\.state), [.on, .off])
+    }
+
     func testInitialMenuStructureAndCheckmarks() throws {
         _ = NSApplication.shared
         let domain = "HUDMenuStructure.\(UUID())"
@@ -134,11 +196,11 @@ final class HUDMenuTests: XCTestCase {
         let delegate = AppDelegate(model: AppModel(defaults: defaults))
         let menu = delegate.makeMenu()
 
-        XCTAssertEqual(menu.items.map(\.title), ["显示 HUD", "钉住 HUD", "HUD 布局", "设置…", "", "退出 Traceflow"])
+        XCTAssertEqual(menu.items.map(\.title), ["显示 HUD", "钉住 HUD", "HUD 布局", "HUD 显示模式", "设置…", "", "退出 Traceflow"])
         XCTAssertEqual(menu.items[0].state, .on)
         XCTAssertEqual(menu.items[1].state, .off)
         XCTAssertEqual(menu.items[3].keyEquivalent, "")
-        XCTAssertEqual(menu.items[5].keyEquivalent, "q")
+        XCTAssertEqual(menu.items[6].keyEquivalent, "q")
         let parent = menu.items[2]
         XCTAssertEqual(parent.state, .off)
         let children = try XCTUnwrap(parent.submenu?.items)

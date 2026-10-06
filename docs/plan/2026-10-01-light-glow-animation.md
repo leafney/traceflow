@@ -1,5 +1,7 @@
 # 红黄绿灯亮度与增强光晕
 
+> 后续修订：见 [灯体与光晕半径同步规格](2026-10-01-light-halo-radius-sync.md)。新规格批准后，其动态半径、连续光晕和绘制结构规则替代本文旧光晕实现；本文保留前版实施记录。
+
 Related discussion: [docs/discuss/2026-10-01-light-glow-animation.md](../discuss/2026-10-01-light-glow-animation.md)
 
 状态：所有编码阶段已完成，自动验证通过；原生实际观感待人工验收。用户授权所有阶段连续开发，各阶段验证并提交后立即继续。

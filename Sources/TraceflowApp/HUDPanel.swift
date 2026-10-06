@@ -2,7 +2,15 @@ import AppKit
 import Combine
 import CoreGraphics
 import SwiftUI
+import QuartzCore
 import TraceflowCore
+
+@MainActor
+private final class HUDSizeDisplayLinkTarget: NSObject {
+    var tick: ((CADisplayLink) -> Void)?
+
+    @objc func displayFrame(_ link: CADisplayLink) { tick?(link) }
+}
 
 final class NonActivatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
@@ -48,21 +56,29 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private let defaults: UserDefaults
     private let positions: HUDPositionStore
     private weak var model: AppModel?
-    private let hostingView: NSHostingView<HUDView>
-    private let background: HUDBackgroundView
+    private var hostingView: NSHostingView<HUDView>
+    private var background: HUDBackgroundView
     private var transparency: Int { geometry.transparency }
     private var transparencyObserver: AnyCancellable?
+    private var iconVisibilityObserver: AnyCancellable?
     private var accessibilityObserver: NSObjectProtocol?
-    private var transitionTimer: Timer?
+    private var transitionDisplayLink: CADisplayLink?
+    private let displayLinkTarget = HUDSizeDisplayLinkTarget()
+    private var sizeTransition: HUDSizeTransition?
+    private var transitionBegan: Double = 0
+    private var transitionElapsed: Double = 0
     private var transitionTarget: NSRect?
+    private var appliedDisplayMode: HUDWindowDisplayMode
+    private var displayModeObserver: AnyCancellable?
     private var layout: HUDLayoutMode
     private var geometry: HUDGeometryState
+    private var styleObserver: AnyCancellable?
     private var layoutObserver: AnyCancellable?
     private var pinObserver: AnyCancellable?
     private var isRestoringPosition = false
     private var isTemporaryPosition = false
     private var positionRetry: DispatchWorkItem?
-    private var positionRetryDeadline: Date?
+    private(set) var positionRetryDeadline: Date?
     var isRetryingPosition: Bool { positionRetry != nil && positionRetryDeadline != nil }
 
     init(model: AppModel, defaults: UserDefaults = .standard) {
@@ -70,56 +86,45 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         self.defaults = defaults
         positions = HUDPositionStore(defaults: defaults)
         layout = model.hudLayoutMode
-        geometry = HUDGeometryState(transparency: model.hudBackgroundTransparency, pinned: model.isHUDPinned)
-        let size = HUDBackgroundAppearance(model.hudBackgroundTransparency).size(layout)
-        let panel = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        let content = Self.makeGlassContent(model: model, size: size)
+        appliedDisplayMode = HUDWindowDisplayMode(session: model.displayedSession)
+        geometry = HUDGeometryState(transparency: model.hudBackgroundTransparency, pinned: model.isHUDPinned,
+                                    iconVisibilityMode: model.hudIconVisibilityMode, displayStyle: model.hudDisplayStyle)
+        let size = geometry.appearance.size(layout)
+        let content = Self.makePanelAssembly(model: model, layout: layout, mode: appliedDisplayMode, style: geometry.displayStyle, size: size,
+                                             transparency: model.hudBackgroundTransparency,
+                                             ignoresMouseEvents: geometry.interaction.ignoresMouseEvents)
         hostingView = content.hostingView
         background = content.background
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = model.hudBackgroundTransparency < 100
-        // Our explicit mouse-up path commits the drag; avoid a second AppKit drag.
-        panel.isMovableByWindowBackground = false
-        panel.hidesOnDeactivate = false
-        panel.contentView = content.container
-        panel.ignoresMouseEvents = geometry.interaction.ignoresMouseEvents
+        let panel = content.panel
         super.init(window: panel)
-        background.update(transparency)
-        content.container.canBeginDrag = { [weak self] in
-            self?.geometry.interaction.canBeginDrag ?? false
-        }
-        content.container.dragStarted = { [weak self] in
-            guard let self else { return }
-            self.finishTransition()
-            guard self.geometry.beginDrag() else { return }
-            self.positionRetry?.cancel()
-            self.positionRetryDeadline = nil
-        }
-        content.container.dragFinished = { [weak self] moved in
-            guard let self, self.geometry.finishDrag(frame: self.window?.frame ?? .zero, moved: moved, layout: self.layout) else { return }
-            if moved {
-                self.savePosition()
-                self.isTemporaryPosition = false
-            } else { self.ensureVisible() }
-            self.updateGeometry(animated: true)
-        }
+        configureInteraction(for: content.container)
         panel.delegate = self
         restorePosition()
         NotificationCenter.default.addObserver(self, selector: #selector(resetPosition), name: .traceflowResetHUDPosition, object: nil)
-        layoutObserver = model.$hudLayoutMode.dropFirst().sink { [weak self] newLayout in
-            // Published emits before the stored value changes. Defer so the
-            // replacement root view observes the new layout mode, not the old one.
-            DispatchQueue.main.async { self?.switchLayout(to: newLayout) }
+        layoutObserver = model.$hudLayoutMode.dropFirst().sink { [weak self] _ in
+            // Published emits before the stored value changes. Read the final
+            // layout/mode combination after both model properties have committed.
+            DispatchQueue.main.async { self?.synchronizePresentation() }
         }
+        styleObserver = model.$hudDisplayStyle.removeDuplicates().dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.synchronizePresentation() }
+        }
+        displayModeObserver = model.$displayedSession
+            .map { HUDWindowDisplayMode(session: $0) }.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.synchronizePresentation() }
+            }
         transparencyObserver = model.$hudBackgroundTransparency.dropFirst().sink { [weak self] value in
             guard let self else { return }
             self.geometry.setTransparency(value)
             self.background.update(value)
-            self.window?.hasShadow = value < 100
-            self.window?.invalidateShadow()
+            if !self.geometry.interaction.isDragging { self.updateGeometry(animated: true) }
+        }
+        iconVisibilityObserver = model.$hudIconVisibilityMode.removeDuplicates().dropFirst().sink { [weak self] value in
+            guard let self else { return }
+            // Published emits before storage changes; carry the incoming value
+            // into geometry instead of reading the model's previous mode.
+            self.geometry.setIconVisibilityMode(value)
             if !self.geometry.interaction.isDragging { self.updateGeometry(animated: true) }
         }
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -134,8 +139,34 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    private func configureInteraction(for container: HUDDragView) {
+        container.canBeginDrag = { [weak self] in
+            self?.geometry.interaction.canBeginDrag ?? false
+        }
+        container.dragStarted = { [weak self] in
+            guard let self else { return }
+            self.finishTransition()
+            guard self.geometry.beginDrag() else { return }
+            self.positionRetry?.cancel()
+            self.positionRetryDeadline = nil
+        }
+        container.dragFinished = { [weak self] moved in
+            guard let self, self.geometry.finishDrag(frame: self.window?.frame ?? .zero, moved: moved, layout: self.layout) else { return }
+            if moved {
+                self.savePosition()
+                self.isTemporaryPosition = false
+            } else { self.ensureVisible() }
+            self.updateGeometry(animated: true)
+        }
+    }
+
     required init?(coder: NSCoder) { nil }
-    func show() { restorePosition(); window?.orderFrontRegardless() }
+    deinit { transitionDisplayLink?.invalidate() }
+    func show() {
+        let placement = synchronizePresentation()
+        if placement != .preserveCurrentGeometry { restorePosition() }
+        window?.orderFrontRegardless()
+    }
     func hide() {
         window?.orderOut(nil)
         cancelInteraction()
@@ -145,8 +176,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     private func cancelInteraction() {
         (window?.contentView as? HUDDragView)?.cancelDrag()
         geometry.cancelDrag()
-        transitionTimer?.invalidate()
-        transitionTimer = nil
+        stopSizeAnimation()
         transitionTarget = nil
     }
 
@@ -201,63 +231,157 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     func switchLayout(to newLayout: HUDLayoutMode) {
-        guard newLayout == model?.hudLayoutMode, newLayout != layout else { return }
+        guard newLayout == model?.hudLayoutMode else { return }
+        synchronizePresentation()
+    }
+
+    @discardableResult
+    private func synchronizePresentation() -> HUDPanelPlacement? {
+        guard let model, window != nil else { return nil }
+        let targetLayout = model.hudLayoutMode
+        let targetMode = HUDWindowDisplayMode(session: model.displayedSession)
+        guard targetLayout != layout || targetMode != appliedDisplayMode || model.hudDisplayStyle != geometry.displayStyle else { return nil }
+        let placement: HUDPanelPlacement = targetLayout != layout
+            ? .restoreLayoutPosition : .preserveCurrentGeometry
+        replacePanel(layout: targetLayout, mode: targetMode, placement: placement)
+        return placement
+    }
+
+    private func disconnectInteraction(for container: HUDDragView) {
+        container.cancelDrag()
+        container.canBeginDrag = nil
+        container.dragStarted = nil
+        container.dragFinished = nil
+    }
+
+    private func replacePanel(layout targetLayout: HUDLayoutMode, mode: HUDWindowDisplayMode,
+                              placement: HUDPanelPlacement) {
+        guard let model, let previous = window else { return }
+        let styleChanged = geometry.displayStyle != model.hudDisplayStyle
+        if styleChanged { finishTransition() }
+        let wasVisible = previous.isVisible
+        let previousFrame = previous.frame
+        let wasDragging = geometry.interaction.isDragging
+        let sizeTarget = transitionTarget
+        var nextGeometry = geometry
+        nextGeometry.cancelDrag()
+        nextGeometry.setDisplayStyle(model.hudDisplayStyle)
+        var frame = NSRect(origin: previousFrame.origin,
+                           size: nextGeometry.appearance.size(targetLayout))
+        if placement == .preserveCurrentGeometry {
+            if wasDragging {
+                nextGeometry.restoreReference(HUDBackgroundAppearance.referenceFrame(previousFrame, layout: layout))
+                frame = nextGeometry.target(layout: layout, visible: bestScreen(for: previousFrame)?.visibleFrame) ?? frame
+            } else if styleChanged {
+                frame = nextGeometry.target(layout: layout, visible: bestScreen(for: previousFrame)?.visibleFrame) ?? frame
+            } else if let sizeTarget {
+                frame = sizeTarget
+            } else if !NSScreen.screens.isEmpty {
+                // Keep the unclamped reference as well as the visible frame.
+                frame = previousFrame
+            }
+        } else {
+            positionRetry?.cancel()
+            positionRetry = nil
+            positionRetryDeadline = nil
+        }
         cancelInteraction()
-        positionRetry?.cancel()
-        positionRetry = nil
-        positionRetryDeadline = nil
-        layout = newLayout
-        model?.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
-        restorePosition()
-        if isTemporaryPosition {
+        model.hudIconFraction = nextGeometry.appearance.resolvedIconFraction
+        let replacement = Self.makePanelAssembly(model: model, layout: targetLayout, mode: mode, style: nextGeometry.displayStyle,
+                                                 size: frame.size, transparency: transparency,
+                                                 ignoresMouseEvents: nextGeometry.interaction.ignoresMouseEvents)
+        replacement.panel.setFrame(frame, display: false)
+        configureInteraction(for: replacement.container)
+        replacement.panel.delegate = self
+
+        // Both panels disable order-in/out animations. Retire the old surface
+        // before showing the new one, in this same synchronous main-thread call.
+        previous.orderOut(nil)
+        previous.delegate = nil
+        if let container = previous.contentView as? HUDDragView { disconnectInteraction(for: container) }
+        window = replacement.panel
+        hostingView = replacement.hostingView
+        background = replacement.background
+        layout = targetLayout
+        appliedDisplayMode = mode
+        geometry = nextGeometry
+        if placement == .restoreLayoutPosition {
+            geometry.restoreReference(HUDBackgroundAppearance.referenceFrame(frame, layout: layout))
+            restorePosition()
+        } else {
+            setDisplayFrame(frame)
+        }
+        previous.contentView = nil
+        previous.close()
+        if wasVisible { replacement.panel.orderFrontRegardless() }
+        if placement == .restoreLayoutPosition, isTemporaryPosition {
             positionRetryDeadline = Date().addingTimeInterval(HUDPositionRetryPolicy.duration)
             schedulePositionRetry()
         }
     }
 
-    private func setDisplayFrame(_ frame: NSRect) {
-        window?.setFrame(frame, display: true)
+    private func setDisplayFrame(_ frame: NSRect, immediate: Bool = true) {
+        window?.setFrame(frame, display: immediate)
         hostingView.frame = NSRect(origin: .zero, size: frame.size)
+    }
+
+    private func stopSizeAnimation() {
+        transitionDisplayLink?.invalidate()
+        transitionDisplayLink = nil
+        displayLinkTarget.tick = nil
+        sizeTransition = nil
+        transitionElapsed = 0
     }
 
     private func finishTransition() {
         guard !geometry.interaction.isDragging else { return }
-        transitionTimer?.invalidate()
-        transitionTimer = nil
+        stopSizeAnimation()
         if let target = transitionTarget { setDisplayFrame(target) }
         transitionTarget = nil
-        model?.hudIconFraction = HUDBackgroundAppearance(transparency).compact ? 0 : 1
+        model?.hudIconFraction = geometry.appearance.resolvedIconFraction
     }
 
     private func updateGeometry(animated: Bool) {
         guard let window, !geometry.interaction.isDragging else { return }
-        let appearance = HUDBackgroundAppearance(transparency)
+        let appearance = geometry.appearance
         guard let target = geometry.target(layout: layout, visible: bestScreen(for: window.frame)?.visibleFrame) else { return }
-        if transitionTimer != nil, transitionTarget == target { return }
-        transitionTimer?.invalidate()
-        transitionTimer = nil
+        if transitionDisplayLink != nil, transitionTarget == target { return }
+        let velocity = sizeTransition?.iconVelocity(elapsed: transitionElapsed) ?? 0
         let start = window.frame
         let fraction = model?.hudIconFraction ?? 1
-        let endFraction = appearance.compact ? 0.0 : 1.0
+        let endFraction = appearance.resolvedIconFraction
         transitionTarget = target
-        guard animated, window.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+        guard animated, geometry.displayStyle == .standard, window.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
               start != target || fraction != endFraction else {
             finishTransition()
             return
         }
-        let transition = HUDSizeTransition(start: start, target: target, initialIconFraction: fraction, targetIconFraction: endFraction)
-        let began = ProcessInfo.processInfo.systemUptime
-        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let sample = transition.sample(elapsed: ProcessInfo.processInfo.systemUptime - began)
-                self.model?.hudIconFraction = sample.iconFraction
-                self.setDisplayFrame(sample.frame)
-                if sample.complete { self.finishTransition() }
-            }
+        sizeTransition = HUDSizeTransition(start: start, target: target, initialIconFraction: fraction,
+                                           targetIconFraction: endFraction, initialIconVelocity: velocity)
+        transitionBegan = CACurrentMediaTime()
+        transitionElapsed = 0
+        // Keep the same display clock on reversal; the proxy does not retain us.
+        if transitionDisplayLink == nil {
+            displayLinkTarget.tick = { [weak self] link in self?.renderSizeTransition(link) }
+            let link = hostingView.displayLink(target: displayLinkTarget, selector: #selector(HUDSizeDisplayLinkTarget.displayFrame(_:)))
+            transitionDisplayLink = link
+            link.add(to: .main, forMode: .common)
         }
-        transitionTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func renderSizeTransition(_ link: CADisplayLink) {
+        guard let sizeTransition else { return }
+        transitionElapsed = max(0, link.targetTimestamp - transitionBegan)
+        let sample = sizeTransition.sample(elapsed: transitionElapsed)
+        // Commit size and content together for the next screen frame; avoid a
+        // synchronous repaint of the glass and hosting tree on every tick.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        model?.hudIconFraction = sample.iconFraction
+        setDisplayFrame(sample.frame, immediate: false)
+        hostingView.layoutSubtreeIfNeeded()
+        CATransaction.commit()
+        if sample.complete { finishTransition() }
     }
 
     private func restorePosition() {
@@ -360,18 +484,54 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         return screens[index]
     }
 
-    private static func makeGlassContent(model: AppModel, size: NSSize) -> (container: HUDDragView, hostingView: NSHostingView<HUDView>, background: HUDBackgroundView) {
+    private struct HUDPanelAssembly {
+        let panel: NonActivatingPanel
+        let container: HUDDragView
+        let hostingView: NSHostingView<HUDView>
+        let background: HUDBackgroundView
+    }
+
+    private static func makePanelAssembly(model: AppModel, layout: HUDLayoutMode, mode: HUDWindowDisplayMode, style: HUDDisplayStyle, size: NSSize,
+                                          transparency: Int, ignoresMouseEvents: Bool) -> HUDPanelAssembly {
+        let panel = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: size),
+                                      styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let content = makeGlassContent(model: model, layout: layout, mode: mode, style: style, size: size)
+        content.background.update(transparency)
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        // Avoid system shadows derived from translucent HUD content.
+        panel.hasShadow = false
+        panel.isMovableByWindowBackground = false
+        panel.hidesOnDeactivate = false
+        // orderOut's logical visibility alone cannot rule out an animated
+        // outgoing surface. Layout replacement must not cross-fade windows.
+        panel.animationBehavior = .none
+        panel.ignoresMouseEvents = ignoresMouseEvents
+        panel.contentView = content.container
+        return HUDPanelAssembly(panel: panel, container: content.container,
+                                hostingView: content.hostingView, background: content.background)
+    }
+
+    private static func makeGlassContent(model: AppModel, layout: HUDLayoutMode, mode: HUDWindowDisplayMode, style: HUDDisplayStyle, size: NSSize) -> (container: HUDDragView, hostingView: NSHostingView<HUDView>, background: HUDBackgroundView) {
         let container = HUDDragView(frame: NSRect(origin: .zero, size: size))
         container.wantsLayer = true
         container.layer?.cornerRadius = min(size.width, size.height) / 2
         let background = HUDBackgroundView(frame: container.bounds)
         background.autoresizingMask = [.width, .height]
         container.addSubview(background)
-        let hosting = NSHostingView(rootView: HUDView(model: model))
-        hosting.frame = container.bounds
-        hosting.autoresizingMask = [.width, .height]
+        let hosting = makeHostingView(model: model, layout: layout, mode: mode, style: style, frame: container.bounds)
         container.addSubview(hosting)
         return (container, hosting, background)
+    }
+
+    private static func makeHostingView(model: AppModel, layout: HUDLayoutMode, mode: HUDWindowDisplayMode, style: HUDDisplayStyle, frame: NSRect) -> NSHostingView<HUDView> {
+        let hosting = NSHostingView(rootView: HUDView(model: model, layout: layout, style: style,
+                                                      presentation: HUDWindowPresentation(model: model, mode: mode)))
+        hosting.frame = frame
+        hosting.autoresizingMask = [.width, .height]
+        return hosting
     }
 }
 

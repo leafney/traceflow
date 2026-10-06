@@ -97,6 +97,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
     public var projectPath: String?
     public var projectName: String?
     public var codexThreadName: String?
+    public var markerColorHex: String?
     public var customTitle: String?
     public var isIncludedInHUD: Bool
     public let discoveredAt: Date
@@ -112,6 +113,7 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
         projectName: String? = nil,
         codexThreadName: String? = nil,
         customTitle: String? = nil,
+        markerColorHex: String? = nil,
         isIncludedInHUD: Bool = false,
         discoveredAt: Date,
         lastUpdatedAt: Date,
@@ -125,12 +127,34 @@ public struct PersistedSession: Codable, Sendable, Equatable, Identifiable {
         self.projectName = projectName
         self.codexThreadName = codexThreadName
         self.customTitle = customTitle
+        self.markerColorHex = SessionMarkerColor.normalized(markerColorHex)
         self.isIncludedInHUD = isIncludedInHUD
         self.discoveredAt = discoveredAt
         self.lastUpdatedAt = lastUpdatedAt
         self.lastActivityAt = lastActivityAt
         self.settingsListSortAt = settingsListSortAt
         self.rotationIndex = rotationIndex
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID, agentType, projectPath, projectName, codexThreadName, customTitle, isIncludedInHUD, discoveredAt, lastUpdatedAt, lastActivityAt, settingsListSortAt, rotationIndex, markerColorHex
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sessionID = try container.decode(String.self, forKey: .sessionID)
+        agentType = try container.decode(String.self, forKey: .agentType)
+        projectPath = try container.decodeIfPresent(String.self, forKey: .projectPath)
+        projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
+        codexThreadName = try container.decodeIfPresent(String.self, forKey: .codexThreadName)
+        customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
+        isIncludedInHUD = try container.decode(Bool.self, forKey: .isIncludedInHUD)
+        discoveredAt = try container.decode(Date.self, forKey: .discoveredAt)
+        lastUpdatedAt = try container.decode(Date.self, forKey: .lastUpdatedAt)
+        lastActivityAt = try container.decodeIfPresent(Date.self, forKey: .lastActivityAt)
+        settingsListSortAt = try container.decodeIfPresent(Date.self, forKey: .settingsListSortAt)
+        rotationIndex = try container.decode(Int.self, forKey: .rotationIndex)
+        markerColorHex = SessionMarkerColor.normalized(try? container.decode(String.self, forKey: .markerColorHex))
     }
 
     public var effectiveSettingsListSortAt: Date {

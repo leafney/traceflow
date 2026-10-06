@@ -21,8 +21,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private(set) var panelController: HUDPanelController?
     private(set) var statusItem: NSStatusItem?
     private var timer: Timer?
+    private var isTerminating = false
     private var visibilityObserver: AnyCancellable?
     private var pinObserver: AnyCancellable?
+    private var styleObserver: AnyCancellable?
+    private var styleMenuItems: [HUDDisplayStyle: NSMenuItem] = [:]
     private var layoutObserver: AnyCancellable?
     private var visibilityMenuItem: NSMenuItem?
     private var pinMenuItem: NSMenuItem?
@@ -63,12 +66,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pinObserver = model.$isHUDPinned.dropFirst().sink { [weak self] _ in
             self?.scheduleMenuRefresh()
         }
+        styleObserver = model.$hudDisplayStyle.dropFirst().sink { [weak self] _ in
+            self?.scheduleMenuRefresh()
+        }
         layoutObserver = model.$hudLayoutMode.dropFirst().sink { [weak self] _ in
             self?.scheduleMenuRefresh()
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) { model.commitTransparency(); model.stopListening() }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isTerminating else { return .terminateLater }
+        isTerminating = true
+        timer?.invalidate()
+        model.commitTransparency()
+        model.sessionColorPanel.close()
+        model.beginShutdown()
+        Task {
+            do { try await model.flushSessionWrites() }
+            catch { model.logDiagnostic("sessions=termination_flush_failed error=\(error.localizedDescription)") }
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) { model.commitTransparency(); model.sessionColorPanel.close(); model.stopListening() }
 
     @objc private func didWake() {
         model.recheckCompletionTimeouts()
@@ -101,6 +122,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             layoutMenuItems[layout] = item
         }
         layoutItem.submenu = layoutMenu
+        let styleItem = menu.addItem(withTitle: "HUD 显示模式", action: nil, keyEquivalent: "")
+        let styleMenu = NSMenu(title: "HUD 显示模式")
+        styleMenu.delegate = self
+        styleMenuItems.removeAll()
+        for style in HUDDisplayStyle.allCases {
+            let item = styleMenu.addItem(withTitle: style.menuTitle, action: #selector(selectStyle(_:)), keyEquivalent: "")
+            item.representedObject = style.rawValue
+            item.target = self
+            styleMenuItems[style] = item
+        }
+        styleItem.submenu = styleMenu
         menu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "退出 Traceflow", action: #selector(quit), keyEquivalent: "q")
@@ -119,6 +151,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func refreshMenuState() {
         visibilityMenuItem?.state = model.isHUDVisible ? .on : .off
         pinMenuItem?.state = model.isHUDPinned ? .on : .off
+        for (style, item) in styleMenuItems {
+            item.state = model.hudDisplayStyle == style ? .on : .off
+        }
         for (layout, item) in layoutMenuItems {
             item.state = model.hudLayoutMode == layout ? .on : .off
         }
@@ -130,6 +165,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func togglePin() {
         model.isHUDPinned.toggle()
+    }
+
+    @objc private func selectStyle(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let style = HUDDisplayStyle(rawValue: raw), style != model.hudDisplayStyle else { return }
+        model.hudDisplayStyle = style
     }
 
     @objc private func selectLayout(_ sender: NSMenuItem) {

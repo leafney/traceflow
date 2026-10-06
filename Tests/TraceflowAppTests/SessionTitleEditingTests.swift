@@ -13,7 +13,7 @@ final class SessionTitleEditingTests: XCTestCase {
         model.autoEnableNewSessions = true
         try await fixture.hook("title", event: .userPromptSubmit)
         let before = try fixture.session("title")
-        try model.setCustomTitle(" 自定义标题 ", sessionID: "title")
+        try await model.setCustomTitle(" 自定义标题 ", sessionID: "title")
         var expected = before
         expected.persisted.customTitle = "自定义标题"
         XCTAssertEqual(try fixture.session("title"), expected)
@@ -26,7 +26,7 @@ final class SessionTitleEditingTests: XCTestCase {
         try await fixture.hook("title", event: .permissionRequest)
         XCTAssertEqual(try fixture.session("title").persisted.customTitle, "自定义标题")
         let latest = try fixture.session("title")
-        try model.setCustomTitle("另一个标题", sessionID: "title")
+        try await model.setCustomTitle("另一个标题", sessionID: "title")
         expected = latest
         expected.persisted.customTitle = "另一个标题"
         XCTAssertEqual(try fixture.session("title"), expected)
@@ -36,7 +36,7 @@ final class SessionTitleEditingTests: XCTestCase {
         model.syncCodexSessions()
         try await fixture.waitUntil { !model.isSyncingSessions }
         XCTAssertEqual(try fixture.session("title").persisted.customTitle, "另一个标题")
-        try model.resetCustomTitle(sessionID: "title")
+        try await model.resetCustomTitle(sessionID: "title")
         XCTAssertNil(try fixture.session("title").persisted.customTitle)
         XCTAssertEqual(model.displayedSession?.state, .attention)
         XCTAssertEqual(model.displayedSession?.displayTitle, "qa · 最新默认名称")
@@ -55,14 +55,14 @@ final class SessionTitleEditingTests: XCTestCase {
         // Rename well into the cycle. A reset here would expire after the probe below.
         try await Task.sleep(nanoseconds: 1_200_000_000)
         let renamedAt = Date()
-        try fixture.model.setCustomTitle("当前项", sessionID: "a")
-        try fixture.model.setCustomTitle("非当前项", sessionID: "b")
+        try await fixture.model.setCustomTitle("当前项", sessionID: "a")
+        try await fixture.model.setCustomTitle("非当前项", sessionID: "b")
         XCTAssertEqual(fixture.model.displayedSession?.id, "a")
         fixture.model.tick(now: visibleFrom.addingTimeInterval(10.2))
         XCTAssertLessThan(visibleFrom.addingTimeInterval(10.2), renamedAt.addingTimeInterval(10))
         XCTAssertEqual(fixture.model.displayedSession?.id, "b")
         try await fixture.hook("idle", event: .sessionStart)
-        try fixture.model.setCustomTitle("待机项", sessionID: "idle")
+        try await fixture.model.setCustomTitle("待机项", sessionID: "idle")
         XCTAssertEqual(try fixture.session("idle").state, .idle)
         XCTAssertEqual(fixture.model.displayedSession?.id, "b")
     }
@@ -73,13 +73,13 @@ final class SessionTitleEditingTests: XCTestCase {
         defer { fixture.cleanUp() }
         fixture.model.autoEnableNewSessions = true
         try await fixture.hook("title", event: .userPromptSubmit)
-        try fixture.model.setCustomTitle("原标题", sessionID: "title")
+        try await fixture.model.setCustomTitle("原标题", sessionID: "title")
         let before = try fixture.session("title")
         let display = fixture.model.displayedSession
         let file = TraceflowPaths.sessions()
         let bytes = try Data(contentsOf: file)
-        XCTAssertThrowsError(try fixture.model.setCustomTitle(" \n ", sessionID: "title"))
-        XCTAssertThrowsError(try fixture.model.setCustomTitle("有效", sessionID: "missing"))
+        await assertAsyncThrows(try await fixture.model.setCustomTitle(" \n ", sessionID: "title"))
+        await assertAsyncThrows(try await fixture.model.setCustomTitle("有效", sessionID: "missing"))
         XCTAssertEqual(fixture.model.sessions.count, 1)
         // Block directory creation deterministically rather than rely on chmod/root behavior.
         let directory = file.deletingLastPathComponent()
@@ -90,14 +90,14 @@ final class SessionTitleEditingTests: XCTestCase {
             try? FileManager.default.moveItem(at: backup, to: directory)
         }
         try Data("blocked".utf8).write(to: directory)
-        XCTAssertThrowsError(try fixture.model.setCustomTitle("不能落盘", sessionID: "title")) {
+        await assertAsyncThrows(try await fixture.model.setCustomTitle("不能落盘", sessionID: "title")) {
             XCTAssertEqual($0 as? SessionTitleSaveError, .writeFailed)
         }
         XCTAssertEqual(try fixture.session("title"), before)
         XCTAssertEqual(fixture.model.displayedSession, display)
         XCTAssertEqual(try Data(contentsOf: backup.appendingPathComponent("sessions.json")), bytes)
         XCTAssertFalse(fixture.model.sessionDataHealth.allowsSaving)
-        XCTAssertThrowsError(try fixture.model.resetCustomTitle(sessionID: "title"))
+        await assertAsyncThrows(try await fixture.model.resetCustomTitle(sessionID: "title"))
     }
 
     func testDeletedRecordCannotBeRenamedOrRecoverItsCustomTitle() async throws {
@@ -105,9 +105,9 @@ final class SessionTitleEditingTests: XCTestCase {
         let fixture = try SessionIntegrationFixture()
         defer { fixture.cleanUp() }
         try await fixture.hook("deleted", event: .sessionStart)
-        try fixture.model.setCustomTitle("旧标题", sessionID: "deleted")
+        try await fixture.model.setCustomTitle("旧标题", sessionID: "deleted")
         fixture.model.deleteSession("deleted")
-        XCTAssertThrowsError(try fixture.model.setCustomTitle("不能重建", sessionID: "deleted")) {
+        await assertAsyncThrows(try await fixture.model.setCustomTitle("不能重建", sessionID: "deleted")) {
             XCTAssertEqual($0 as? SessionTitleSaveError, .missingSession)
         }
         try await fixture.discover(["deleted"], manual: true)

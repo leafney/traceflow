@@ -40,9 +40,11 @@ final class AppModel: ObservableObject {
             logger.log(SessionEventLogFormatter.carouselSettings(mode: timingMode, uniformDuration: displayDuration))
         }
     }
+    @Published var hudDisplayStyle: HUDDisplayStyle { didSet { hudPreferences.saveDisplayStyle(hudDisplayStyle) } }
     @Published var hudLayoutMode: HUDLayoutMode { didSet { hudPreferences.saveLayoutMode(hudLayoutMode) } }
     @Published var hudGlowMode: HUDGlowMode { didSet { hudPreferences.saveGlowMode(hudGlowMode) } }
     @Published var hudTitleColor: HUDTitleColor { didSet { hudPreferences.saveTitleColor(hudTitleColor) } }
+    @Published var hudIconVisibilityMode: HUDIconVisibilityMode { didSet { hudPreferences.saveIconVisibilityMode(hudIconVisibilityMode) } }
     @Published var isHUDPinned: Bool { didSet { hudPreferences.savePinned(isHUDPinned) } }
 
     @Published var hudIconFraction: Double = 1
@@ -77,17 +79,38 @@ final class AppModel: ObservableObject {
     private let defaults: UserDefaults
     private let hudPreferences: HUDPreferences
     private let logger = RotatingLogger(directory: TraceflowPaths.logs())
-    private let sessionStore = SessionStore(url: TraceflowPaths.sessions())
+    private let sessionStore: SessionStore
     private var machines: [String: SessionStateMachine] = [:]
+    private struct PendingEdit {
+        let value: String?
+        let token: Int
+        let firstToken: Int
+        var completions: [(Result<Void, Error>) -> Void]
+    }
+    private var pendingColors: [String: PendingEdit] = [:]
+    private var pendingTitles: [String: PendingEdit] = [:]
+    private var nextEditToken = 0
+    private var writeRevision = 0
+    private var completedWriteRevision = 0
+    private var writeEpoch = 0
+    private var writeInFlight = false
+    private var writeScheduled = false
+    private var retryRequested = false
+    private var saveWaiters: [(revision: Int, completion: (Result<Void, Error>) -> Void)] = []
+    private var flushWaiters: [(Result<Void, Error>) -> Void] = []
+    private var isShuttingDown = false
+
     private var scheduler = CarouselScheduler()
     private var server: UnixSocketServer?
     private var nextRotationIndex = 0
+    lazy var sessionColorPanel = SessionColorPanelController(model: self)
     private var settingsController: NSWindowController?
     private var pendingHealthCheckID: String?
     private var discovery = SessionDiscoveryCoordinator()
     private var lastRecentRefreshAt: Date = .distantPast
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, sessionStore: SessionStore? = nil) {
+        self.sessionStore = sessionStore ?? SessionStore(url: TraceflowPaths.sessions())
         self.defaults = defaults
         autoEnableNewSessions = defaults.bool(forKey: "autoEnableNewSessions")
         hudPreferences = HUDPreferences(defaults: defaults)
@@ -95,14 +118,17 @@ final class AppModel: ObservableObject {
         isHUDVisible = defaults.bool(forKey: "hudVisible")
         displayDuration = [3.0, 5.0, 10.0].contains(defaults.double(forKey: "displayDuration")) ? defaults.double(forKey: "displayDuration") : 5
         timingMode = defaults.string(forKey: "carouselTimingMode").flatMap(CarouselTimingMode.init(rawValue:)) ?? .uniform
+        hudDisplayStyle = hudPreferences.loadDisplayStyle()
         hudLayoutMode = hudPreferences.loadLayoutMode()
         hudGlowMode = hudPreferences.loadGlowMode()
         hudTitleColor = hudPreferences.loadTitleColor()
         isHUDPinned = hudPreferences.loadPinned()
         let savedTransparency = hudPreferences.loadTransparency()
+        let savedIconMode = hudPreferences.loadIconVisibilityMode()
+        hudIconVisibilityMode = savedIconMode
         transparencyDraft = HUDTransparencyDraft(savedTransparency)
         hudBackgroundTransparency = savedTransparency
-        hudIconFraction = HUDBackgroundAppearance(hudBackgroundTransparency).compact ? 0 : 1
+        hudIconFraction = HUDBackgroundAppearance(savedTransparency, iconVisibilityMode: savedIconMode, displayStyle: hudDisplayStyle).resolvedIconFraction
         scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
         expandedProjectKeys = Set(defaults.stringArray(forKey: "expandedProjectKeys") ?? [])
         restoreSessions()
@@ -140,7 +166,17 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func stopListening() { server?.stop(); server = nil; logger.flush() }
+    func beginShutdown() {
+        isShuttingDown = true
+        discovery.invalidateInFlightResponses()
+        server?.stop(); server = nil
+    }
+
+    func stopListening() {
+        beginShutdown()
+        flushSessionWritesSynchronously()
+        logger.flush()
+    }
 
     func tick(now: Date = Date()) {
         recheckCompletionTimeouts(now: now)
@@ -170,7 +206,10 @@ final class AppModel: ObservableObject {
         if settingsController == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 680), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
             settingsCloseObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.setTransparencyEditing(false) }
+                MainActor.assumeIsolated {
+                    self?.setTransparencyEditing(false)
+                    self?.sessionColorPanel.close()
+                }
             }
             window.title = "Traceflow 设置"
             window.contentView = NSHostingView(rootView: SettingsView(model: self))
@@ -191,35 +230,78 @@ final class AppModel: ObservableObject {
         refreshSessions(); persistSessions()
     }
 
-    func setCustomTitle(_ raw: String, sessionID: String) throws {
-        try saveCustomTitle(SessionTitleEditor.normalizedTitle(raw), sessionID: sessionID)
-    }
+    @Published var markerColorErrorMessage: String?
 
-    func resetCustomTitle(sessionID: String) throws {
-        try saveCustomTitle(nil, sessionID: sessionID)
-    }
-
-    private func saveCustomTitle(_ title: String?, sessionID: String) throws {
-        guard var machine = machines[sessionID] else { throw SessionTitleSaveError.missingSession }
-        guard sessionDataHealth.allowsSaving else { throw SessionTitleSaveError.protectedData }
-        guard machine.snapshot.persisted.customTitle != title else { return }
-        var persisted = machine.snapshot.persisted
-        persisted.customTitle = title
-        machine.updatePersistedMetadata(persisted)
-        let candidate = machines.values.map { current in
-            current.snapshot.id == sessionID ? persisted : current.snapshot.persisted
-        }.sorted { $0.rotationIndex < $1.rotationIndex }
-        do {
-            try sessionStore.save(candidate)
-        } catch {
-            sessionDataHealth = sessionStore.health
-            throw SessionTitleSaveError.writeFailed
+    func setMarkerColor(_ raw: String, sessionID: String) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            requestMarkerColor(raw, sessionID: sessionID) { continuation.resume(with: $0) }
         }
-        sessionDataHealth = sessionStore.health
-        machines[sessionID] = machine
-        publishSessions()
-        // A rename updates text only; never reset the scheduler's current cycle.
-        if displayedSession?.id == sessionID { updateDisplay(sessionID) }
+    }
+
+    /// Accept the final choice synchronously, so closing or retargeting the
+    /// native panel cannot discard a Task that has not started yet.
+    func requestMarkerColor(_ raw: String, sessionID: String,
+                            completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let machine = machines[sessionID] else { completion(.failure(SessionMarkerColorError.missingSession)); return }
+        guard sessionDataHealth.allowsSaving else { completion(.failure(SessionMarkerColorError.protectedData)); return }
+        guard let color = SessionMarkerColor.normalized(raw) else { completion(.failure(SessionMarkerColorError.invalidColor)); return }
+        if pendingColors[sessionID] == nil, machine.snapshot.persisted.markerColorHex == color {
+            completion(.success(())); return
+        }
+        nextEditToken += 1
+        var callbacks = pendingColors[sessionID]?.completions ?? []
+        callbacks.append { result in
+            completion(result.mapError { error in
+                if let error = error as? SessionMarkerColorError { return error }
+                return SessionMarkerColorError.writeFailed
+            })
+        }
+        pendingColors[sessionID] = PendingEdit(value: color, token: nextEditToken,
+                                             firstToken: pendingColors[sessionID]?.firstToken ?? nextEditToken,
+                                             completions: callbacks)
+        requestSessionWrite()
+    }
+
+    private func fillMarkerColors() {
+        do {
+            let records = try SessionMarkerColor.fillingMissing(in: machines.values.map { $0.snapshot.persisted })
+            for record in records { machines[record.id]?.updatePersistedMetadata(record) }
+        } catch {
+            markerColorErrorMessage = "会话颜色分配失败"
+        }
+    }
+
+    func setCustomTitle(_ raw: String, sessionID: String) async throws {
+        try await saveCustomTitle(SessionTitleEditor.normalizedTitle(raw), sessionID: sessionID)
+    }
+
+    func resetCustomTitle(sessionID: String) async throws {
+        try await saveCustomTitle(nil, sessionID: sessionID)
+    }
+
+    private func saveCustomTitle(_ title: String?, sessionID: String) async throws {
+        guard let machine = machines[sessionID] else { throw SessionTitleSaveError.missingSession }
+        guard sessionDataHealth.allowsSaving else { throw SessionTitleSaveError.protectedData }
+        if pendingTitles[sessionID] == nil, machine.snapshot.persisted.customTitle == title { return }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            enqueueCustomTitle(title, sessionID: sessionID) { continuation.resume(with: $0) }
+        }
+    }
+
+    private func enqueueCustomTitle(_ title: String?, sessionID: String,
+                                    completion: @escaping (Result<Void, Error>) -> Void) {
+        nextEditToken += 1
+        var callbacks = pendingTitles[sessionID]?.completions ?? []
+        callbacks.append { result in
+            completion(result.mapError { error in
+                if let error = error as? SessionTitleSaveError { return error }
+                return SessionTitleSaveError.writeFailed
+            })
+        }
+        pendingTitles[sessionID] = PendingEdit(value: title, token: nextEditToken,
+                                             firstToken: pendingTitles[sessionID]?.firstToken ?? nextEditToken,
+                                             completions: callbacks)
+        requestSessionWrite()
     }
 
     func setProjectIncluded(_ included: Bool, projectKey: String) {
@@ -244,6 +326,7 @@ final class AppModel: ObservableObject {
     func deleteSession(_ sessionID: String) {
         guard sessionDataHealth.allowsSaving else { return }
         discovery.suppress([sessionID], now: Date())
+        cancelPendingEdits(for: sessionID)
         machines.removeValue(forKey: sessionID)
         refreshSessions(); persistSessions()
     }
@@ -252,6 +335,7 @@ final class AppModel: ObservableObject {
         guard sessionDataHealth.allowsSaving else { return }
         discovery.invalidateInFlightResponses()
         discovery.suppress(Array(machines.keys), now: Date())
+        for id in Set(pendingColors.keys).union(pendingTitles.keys) { cancelPendingEdits(for: id) }
         machines.removeAll(); nextRotationIndex = 0; expandedProjectKeys.removeAll()
         defaults.removeObject(forKey: "expandedProjectKeys")
         refreshSessions(); persistSessions()
@@ -271,13 +355,11 @@ final class AppModel: ObservableObject {
     }
 
     func retrySessionSave() {
-        do {
-            try sessionStore.retrySave(sessions.map(\.persisted))
-            sessionDataHealth = sessionStore.health
-            sessionSyncMessage = "会话数据保存成功。"
-        } catch {
-            sessionDataHealth = sessionStore.health
-            sessionSyncMessage = "保存失败：\(error.localizedDescription)"
+        requestSessionWrite(retry: true) { [weak self] result in
+            switch result {
+            case .success: self?.sessionSyncMessage = "会话数据保存成功。"
+            case .failure(let error): self?.sessionSyncMessage = "保存失败：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -385,6 +467,7 @@ final class AppModel: ObservableObject {
     }
 
     private func startDiscovery(_ request: SessionDiscoveryRequest, now: Date) {
+        guard !isShuttingDown else { return }
         guard sessionDataHealth.allowsSaving else {
             _ = discovery.finish(now: now)
             return
@@ -442,6 +525,7 @@ final class AppModel: ObservableObject {
     }
 
     private func apply(_ envelope: HookEnvelope) {
+        guard !isShuttingDown else { return }
         let id = envelope.payload.sessionID
         if id.hasPrefix("__traceflow_health_check__:") {
             if id == pendingHealthCheckID, envelope.payload.source == "traceflow-health-check" {
@@ -480,6 +564,7 @@ final class AppModel: ObservableObject {
         ))
         localCommunicationHealth = LocalCommunicationHealth(state: .healthy, detail: "最近成功收到 Hook 事件")
         machines[id] = machine
+        if machine.snapshot.persisted.markerColorHex == nil { fillMarkerColors() }
         let snapshot = machine.snapshot
         publishSessions()
         let membershipDecision = scheduler.updateSessions(sessions, now: Date(), updateExistingStates: false, processNewlyIncluded: false)
@@ -558,29 +643,173 @@ final class AppModel: ObservableObject {
         do {
             let restored = try sessionStore.load()
             for persisted in restored { machines[persisted.sessionID] = SessionStateMachine(snapshot: SessionSnapshot(persisted: persisted, state: .idle)); nextRotationIndex = max(nextRotationIndex, persisted.rotationIndex + 1) }
+            fillMarkerColors()
             refreshSessions()
             sessionDataHealth = sessionStore.health
+            if sessions.map(\.persisted) != restored { persistSessions() }
         } catch {
             sessionDataHealth = sessionStore.health
             logger.log("error=session_store_read")
         }
     }
 
-    @discardableResult
-    private func persistSessions() -> Bool {
-        guard sessionDataHealth.allowsSaving else { return false }
-        do {
-            try sessionStore.save(sessions.map(\.persisted))
-            sessionDataHealth = sessionStore.health
-            return true
-        } catch {
-            sessionDataHealth = sessionStore.health
-            logger.log("error=session_store_write")
-            return false
+    /// Main actor owns ordering and edits; SessionStore owns all disk work.
+    private func requestSessionWrite(retry: Bool = false,
+                                     completion: ((Result<Void, Error>) -> Void)? = nil) {
+        writeRevision += 1
+        retryRequested = retryRequested || retry
+        if let completion { saveWaiters.append((writeRevision, completion)) }
+        scheduleSessionWrite()
+    }
+
+    private func scheduleSessionWrite() {
+        guard !writeInFlight, !writeScheduled, writeRevision > completedWriteRevision else {
+            resolveFlushIfIdle()
+            return
+        }
+        writeScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.writeScheduled = false
+            self.startSessionWrite()
         }
     }
 
+    private func recordsForWrite() -> [PersistedSession] {
+        machines.values.map { machine in
+            var record = machine.snapshot.persisted
+            if let edit = pendingColors[record.id] { record.markerColorHex = edit.value }
+            if let edit = pendingTitles[record.id] { record.customTitle = edit.value }
+            return record
+        }.sorted {
+            $0.rotationIndex == $1.rotationIndex ? $0.id < $1.id : $0.rotationIndex < $1.rotationIndex
+        }
+    }
+
+    private func startSessionWrite() {
+        guard !writeInFlight, writeRevision > completedWriteRevision else { resolveFlushIfIdle(); return }
+        let revision = writeRevision, epoch = writeEpoch
+        let colors = pendingColors, titles = pendingTitles
+        let retry = retryRequested
+        retryRequested = false
+        writeInFlight = true
+        sessionStore.saveAsync(recordsForWrite(), retry: retry) { [weak self] result, health in
+            guard let self, epoch == self.writeEpoch else { return }
+            self.finishSessionWrite(result, health: health, revision: revision, colors: colors, titles: titles)
+        }
+    }
+
+    private func finishSessionWrite(_ result: Result<Void, Error>, health: SessionDataHealth,
+                                    revision: Int, colors: [String: PendingEdit], titles: [String: PendingEdit]) {
+        writeInFlight = false
+        if case .failure = result, !pendingColors.isEmpty {
+            markerColorErrorMessage = "颜色保存失败，未更改会话颜色"
+        }
+        sessionDataHealth = health
+        switch result {
+        case .success:
+            // Merge only the saved fields into current metadata. Hooks, deletion,
+            // inclusion and discovery may have changed the rest during the write.
+            var callbacks: [(Result<Void, Error>) -> Void] = []
+            var changed = false
+            // A newer pending value must not hide an older successful commit:
+            // if the next write fails, UI must retain the actual last saved color.
+            // firstToken changes after deletion/recreation, rejecting old results.
+            for (id, edit) in colors where pendingColors[id]?.firstToken == edit.firstToken {
+                if var machine = machines[id] {
+                    var record = machine.snapshot.persisted
+                    record.markerColorHex = edit.value
+                    machine.updatePersistedMetadata(record)
+                    machines[id] = machine
+                    changed = true
+                }
+                if pendingColors[id]?.token == edit.token {
+                    callbacks += pendingColors.removeValue(forKey: id)?.completions ?? []
+                }
+            }
+            for (id, edit) in titles where pendingTitles[id]?.firstToken == edit.firstToken {
+                if var machine = machines[id] {
+                    var record = machine.snapshot.persisted
+                    record.customTitle = edit.value
+                    machine.updatePersistedMetadata(record)
+                    machines[id] = machine
+                    changed = true
+                }
+                if pendingTitles[id]?.token == edit.token {
+                    callbacks += pendingTitles.removeValue(forKey: id)?.completions ?? []
+                }
+            }
+            completedWriteRevision = revision
+            let ready = saveWaiters.filter { $0.revision <= revision }
+            saveWaiters.removeAll { $0.revision <= revision }
+            if changed {
+                publishSessions()
+                updateDisplay(displayedSession?.id)
+            }
+            callbacks.forEach { $0(.success(())) }
+            ready.forEach { $0.completion(.success(())) }
+            scheduleSessionWrite()
+        case .failure:
+            // Do not publish an unsaved edit or spin on a broken directory.
+            completedWriteRevision = writeRevision
+            retryRequested = false
+            let callbacks = pendingColors.values.flatMap(\.completions)
+                + pendingTitles.values.flatMap(\.completions)
+                + saveWaiters.map(\.completion) + flushWaiters
+            pendingColors.removeAll(); pendingTitles.removeAll()
+            saveWaiters.removeAll(); flushWaiters.removeAll()
+            logger.log("sessions=persist_failed")
+            callbacks.forEach { $0(result) }
+        }
+    }
+
+    private func cancelPendingEdits(for id: String) {
+        let colors = pendingColors.removeValue(forKey: id)?.completions ?? []
+        let titles = pendingTitles.removeValue(forKey: id)?.completions ?? []
+        colors.forEach { $0(.failure(SessionMarkerColorError.missingSession)) }
+        titles.forEach { $0(.failure(SessionTitleSaveError.missingSession)) }
+    }
+
+    private func resolveFlushIfIdle() {
+        guard !writeInFlight, completedWriteRevision == writeRevision else { return }
+        let waiters = flushWaiters
+        flushWaiters.removeAll()
+        let result: Result<Void, Error> = sessionDataHealth.allowsSaving
+            ? .success(()) : .failure(SessionStoreError.writeProtected)
+        waiters.forEach { $0(result) }
+    }
+
+    func flushSessionWrites() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            flushWaiters.append { continuation.resume(with: $0) }
+            scheduleSessionWrite()
+        }
+    }
+
+    /// Only shutdown/test cleanup uses this blocking barrier. FIFO guarantees
+    /// an older background write cannot recreate a removed fixture directory.
+    private func flushSessionWritesSynchronously() {
+        guard writeInFlight || completedWriteRevision < writeRevision else { return }
+        writeEpoch += 1
+        let colors = pendingColors, titles = pendingTitles
+        let result: Result<Void, Error>
+        do {
+            if retryRequested { try sessionStore.retrySave(recordsForWrite()) }
+            else { try sessionStore.save(recordsForWrite()) }
+            result = .success(())
+        } catch { result = .failure(error) }
+        finishSessionWrite(result, health: sessionStore.health, revision: writeRevision, colors: colors, titles: titles)
+    }
+
+    private func persistSessions(completion: ((Result<Void, Error>) -> Void)? = nil) {
+        guard sessionDataHealth.allowsSaving else {
+            completion?(.failure(SessionStoreError.writeProtected)); return
+        }
+        requestSessionWrite(completion: completion)
+    }
+
     private func mergeCodexThreads(_ threads: [CodexThreadSummary], isManual: Bool) {
+        guard !isShuttingDown else { return }
         let current = machines.values.map(\.snapshot.persisted)
         // Read the preference when merging, not when the asynchronous request starts.
         // Manual history sync never opts new records into the HUD.
@@ -598,6 +827,7 @@ final class AppModel: ObservableObject {
                 let live = machine.snapshot.persisted
                 merged.isIncludedInHUD = live.isIncludedInHUD
                 merged.customTitle = live.customTitle
+                merged.markerColorHex = live.markerColorHex
                 merged.lastActivityAt = max(live.lastActivityAt ?? merged.lastActivityAt ?? .distantPast, merged.lastActivityAt ?? .distantPast)
                 machine.updatePersistedMetadata(merged)
                 mergedMachines[persisted.sessionID] = machine
@@ -610,21 +840,22 @@ final class AppModel: ObservableObject {
             }
         }
         machines = mergedMachines
+        fillMarkerColors()
         nextRotationIndex = result.nextRotationIndex
         refreshSessions()
-        let saved = persistSessions()
-        if isManual {
-            sessionSyncMessage = SessionSyncReport.message(
-                readCount: threads.count,
-                addedCount: result.addedCount,
-                updatedCount: result.updatedCount,
-                saved: saved
-            )
-        }
-        if saved {
-            logger.log("sessions=sync_success count=\(threads.count) added=\(result.addedCount)")
-        } else {
-            logger.log("sessions=sync_persist_failed count=\(threads.count)")
+        let resultCounts = (added: result.addedCount, updated: result.updatedCount)
+        if isManual { sessionSyncMessage = "会话已读取，正在保存……" }
+        persistSessions { [weak self] result in
+            guard let self else { return }
+            let saved: Bool
+            switch result { case .success: saved = true; case .failure: saved = false }
+            if isManual {
+                self.sessionSyncMessage = SessionSyncReport.message(
+                    readCount: threads.count, addedCount: resultCounts.added,
+                    updatedCount: resultCounts.updated, saved: saved
+                )
+            }
+            self.logger.log(saved ? "sessions=sync_success count=\(threads.count) added=\(resultCounts.added)" : "sessions=sync_persist_failed count=\(threads.count)")
         }
     }
 

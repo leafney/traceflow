@@ -13,7 +13,7 @@ final class SessionIntegrationFixture {
     private let environment: [String: String?]
     private let initialWindows: Set<Int>
 
-    init() throws {
+    init(beforeWrite: (() -> Void)? = nil) throws {
         // A short path keeps the Unix socket below sockaddr_un's path limit.
         root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("tf-" + String(UUID().uuidString.prefix(8)))
@@ -42,7 +42,7 @@ final class SessionIntegrationFixture {
         }
         setenv("TRACEFLOW_HOME", root.path, 1)
         setenv("ZDOTDIR", root.path, 1)
-        model = AppModel(defaults: defaults)
+        model = AppModel(defaults: defaults, sessionStore: SessionStore(url: TraceflowPaths.sessions(), beforeWrite: beforeWrite))
         model.isHUDVisible = false
         model.startListening()
     }
@@ -74,16 +74,18 @@ final class SessionIntegrationFixture {
         if manual {
             model.syncCodexSessions()
             try await waitUntil { !model.isSyncingSessions }
+            try await model.flushSessionWrites()
             XCTAssertFalse(model.sessionSyncMessage?.contains("失败") ?? true)
         } else {
             model.openSettingsWindow()
             try await waitUntil { !model.isDiscoveringRecentSessions }
             XCTAssertNil(model.recentDiscoveryMessage)
         }
+        try await model.flushSessionWrites()
         for id in ids { _ = try session(id) }
     }
 
-    func hook(_ id: String, event: HookEventName) async throws {
+    func hook(_ id: String, event: HookEventName, flush: Bool = true) async throws {
         let uptime = DispatchTime.now().uptimeNanoseconds
         let envelope = HookEnvelope(
             eventID: UUID().uuidString, capturedUptimeNanoseconds: uptime, forwardedAt: Date(),
@@ -94,6 +96,7 @@ final class SessionIntegrationFixture {
         try UnixSocketClient.send(encoder.encode(envelope), to: TraceflowPaths.socket().path)
         // Wait for THIS event, even when the previous event left the state running.
         try await waitUntil { model.sessions.first { $0.id == id }?.lastAppliedUptimeNanoseconds == uptime }
+        if flush { try await model.flushSessionWrites() }
     }
 
     func waitUntil(_ predicate: () -> Bool) async throws {
@@ -125,4 +128,13 @@ final class SessionIntegrationFixture {
             continue
         print(json.dumps({'id': request['id'], 'result': result}), flush=True)
     """
+}
+
+/// Await outside XCTest's synchronous autoclosures.
+@MainActor
+func assertAsyncThrows<T>(_ expression: @autoclosure () async throws -> T,
+                          file: StaticString = #filePath, line: UInt = #line,
+                          _ handler: (Error) -> Void = { _ in }) async {
+    do { _ = try await expression(); XCTFail("预期异步操作失败", file: file, line: line) }
+    catch { handler(error) }
 }

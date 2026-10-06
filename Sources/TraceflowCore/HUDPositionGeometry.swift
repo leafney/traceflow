@@ -2,6 +2,8 @@ import CoreGraphics
 import Foundation
 
 public enum HUDMetrics {
+    public static let compactLongAxis: CGFloat = 144
+    public static let markerDiameter: CGFloat = 14
     public static let longAxis: CGFloat = 420
     public static let shortAxis: CGFloat = 40
     public static let iconLength: CGFloat = 40

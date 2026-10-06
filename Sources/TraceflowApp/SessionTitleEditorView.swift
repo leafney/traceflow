@@ -28,6 +28,7 @@ struct SessionTitleEditorView: View {
                 TextField("会话标题", text: $editing.draft)
                     .textFieldStyle(.roundedBorder)
                     .focused($titleFocused)
+                    .disabled(editing.isSaving)
                     .accessibilityLabel("会话标题")
                     .onSubmit { save() }
             }
@@ -40,11 +41,12 @@ struct SessionTitleEditorView: View {
             if let message = editing.message {
                 Text(message).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
             }
+            if editing.isSaving { ProgressView("正在保存……").controlSize(.small) }
             HStack {
                 Button("恢复默认标题") { restore() }
                     .disabled(!editing.canRestore)
                 Spacer()
-                Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("取消") { dismiss() }.keyboardShortcut(.cancelAction).disabled(editing.isSaving)
                 Button("保存") { save() }.keyboardShortcut(.defaultAction).disabled(!editing.canSave)
             }
         }
@@ -55,10 +57,10 @@ struct SessionTitleEditorView: View {
     }
 
     private func save() {
-        if editing.save() { dismiss() }
+        Task { if await editing.save() { dismiss() } }
     }
 
     private func restore() {
-        if editing.restore() { dismiss() }
+        Task { if await editing.restore() { dismiss() } }
     }
 }

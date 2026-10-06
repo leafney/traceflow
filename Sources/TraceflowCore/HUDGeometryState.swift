@@ -3,12 +3,26 @@ import CoreGraphics
 /// Keeps the intended reference separate from the screen-clamped display frame.
 public struct HUDGeometryState {
     public private(set) var interaction: HUDInteractionState
+    public private(set) var displayStyle: HUDDisplayStyle
     public private(set) var transparency: Int
+    public private(set) var iconVisibilityMode: HUDIconVisibilityMode
     public private(set) var reference: CGRect?
 
-    public init(transparency: Int, pinned: Bool) {
+    public init(transparency: Int, pinned: Bool, iconVisibilityMode: HUDIconVisibilityMode = .automatic, displayStyle: HUDDisplayStyle = .standard) {
         self.transparency = HUDBackgroundAppearance.normalize(Double(transparency))
+        self.iconVisibilityMode = iconVisibilityMode
+        self.displayStyle = displayStyle
         interaction = HUDInteractionState(isPinned: pinned)
+    }
+
+    public var appearance: HUDBackgroundAppearance {
+        HUDBackgroundAppearance(transparency, iconVisibilityMode: iconVisibilityMode, displayStyle: displayStyle)
+    }
+
+    public mutating func setDisplayStyle(_ style: HUDDisplayStyle) { displayStyle = style }
+
+    public mutating func setIconVisibilityMode(_ mode: HUDIconVisibilityMode) {
+        iconVisibilityMode = mode
     }
 
     public mutating func setTransparency(_ value: Int) {
@@ -19,7 +33,7 @@ public struct HUDGeometryState {
 
     public func target(layout: HUDLayoutMode, visible: CGRect?) -> CGRect? {
         guard !interaction.isDragging, let reference else { return nil }
-        let display = HUDBackgroundAppearance(transparency).displayFrame(reference, layout: layout)
+        let display = appearance.displayFrame(reference, layout: layout)
         return visible.map { HUDPositionGeometry.clamped(display, to: $0) } ?? display
     }
 

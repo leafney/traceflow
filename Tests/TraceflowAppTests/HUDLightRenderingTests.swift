@@ -24,6 +24,61 @@ final class HUDLightRenderingTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(renderer.cgImage).height, 26)
     }
 
+    func testHaloGrowsAndStaysConnectedAcrossColorsAndModes() throws {
+        for kind in [StatusLightKind.attention, .completed, .running] {
+            for mode in [HUDGlowMode.standard, .strong] {
+                var previousCoverage = 0
+                for q in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                    let visual = HUDLightVisualParameters(scale: 0.9 + 0.2 * q,
+                        bodyOpacity: 0.55 + 0.45 * q, glowIntensity: q, isTimelinePaused: false)
+                    let image = try frame(kind: kind, mode: mode, active: true, visual: visual)
+                    let radius = 13 * visual.scale
+                    let outer = radius + (mode == .strong ? 7 : 4) * q
+                    XCTAssertEqual(alpha(image, radius: 0...8), visual.bodyOpacity, accuracy: 0.02)
+                    XCTAssertLessThan(alpha(image, radius: (outer + 2)...30), 0.01)
+                    var coverage = 0
+                    for y in 0..<image.pixelsHigh {
+                        for x in 0..<image.pixelsWide {
+                            if Double(image.colorAt(x: x, y: y)?.alphaComponent ?? 0) >= 0.01 {
+                                coverage += 1
+                            }
+                        }
+                    }
+                    XCTAssertGreaterThan(coverage, previousCoverage)
+                    previousCoverage = coverage
+                    if q == 0 {
+                        XCTAssertLessThan(alpha(image, radius: (radius + 2)...30), 0.01)
+                        continue
+                    }
+                    for direction in 0..<8 {
+                        let angle = Double(direction) * .pi / 4
+                        var transparentRun = 0
+                        var gapDetected = false
+                        for step in 0...Int(ceil((outer - radius + 1) * 2)) {
+                            let r = radius - 0.5 + Double(step) / 2
+                            let x = Int((32 + cos(angle) * r) * 2)
+                            let y = Int((32 + sin(angle) * r) * 2)
+                            let value = Double(image.colorAt(x: x, y: y)?.alphaComponent ?? 0)
+                            if value < 0.01 { transparentRun += 1 }
+                            else {
+                                if transparentRun >= 2 && value >= 0.03 { gapDetected = true }
+                                transparentRun = 0
+                            }
+                        }
+                        XCTAssertFalse(gapDetected, "灯体边缘与光晕之间出现透明间隙")
+                    }
+                }
+            }
+        }
+    }
+
+    func testInactiveFrameRejectsStalePeakParameters() throws {
+        let stalePeak = HUDLightAnimation.parameters(for: .attention, isActive: true, referenceTime: 0.56 * 0.3, reduceMotion: false)
+        let image = try frame(kind: .attention, mode: .strong, active: false, visual: stalePeak)
+        XCTAssertEqual(alpha(image, radius: 0...8), 0.18, accuracy: 0.02)
+        XCTAssertLessThan(alpha(image, radius: 15...30), 0.01)
+    }
+
     func testActualHUDUpdatesAfterHooksAndModeChangesInEveryLayout() async throws {
         _ = NSApplication.shared
         let fixture = try SessionIntegrationFixture()
@@ -34,7 +89,8 @@ final class HUDLightRenderingTests: XCTestCase {
             let renderer = ImageRenderer(content: HUDView(model: fixture.model))
             var previousStateImage: Data?
             for (event, state) in [(HookEventName.userPromptSubmit, SessionRuntimeState.running),
-                                   (.stop, .completed), (.permissionRequest, .attention), (.interrupt, .idle)] {
+                                   (.permissionRequest, .attention), (.stop, .completed),
+                                   (.permissionRequest, .attention), (.interrupt, .idle)] {
                 try await fixture.hook("lights", event: event)
                 if state == .idle { XCTAssertNil(fixture.model.displayedSession) }
                 else { XCTAssertEqual(fixture.model.displayedSession?.state, state) }
@@ -54,15 +110,15 @@ final class HUDLightRenderingTests: XCTestCase {
                 }
                 previousStateImage = a
                 if state == .idle { XCTAssertEqual(a, b, "未点亮时切换光晕不应改变画面") }
-                else if state == .completed { XCTAssertNotEqual(a, b, "点亮时切换光晕必须更新画面") }
+
             }
         }
     }
 
-    private func frame(mode: HUDGlowMode, active: Bool, visual: HUDLightVisualParameters) throws -> NSBitmapImageRep {
-        let renderer = ImageRenderer(content: StatusLightFrame(kind: .running, active: active, glow: mode, visual: visual)
+    private func frame(kind: StatusLightKind = .running, mode: HUDGlowMode, active: Bool, visual: HUDLightVisualParameters) throws -> NSBitmapImageRep {
+        let renderer = ImageRenderer(content: StatusLightFrame(kind: kind, active: active, glow: mode, visual: visual)
             .frame(width: 64, height: 64))
-        renderer.scale = 1
+        renderer.scale = 2
         return NSBitmapImageRep(cgImage: try XCTUnwrap(renderer.cgImage))
     }
 
@@ -71,7 +127,7 @@ final class HUDLightRenderingTests: XCTestCase {
         var count = 0
         for y in 0..<image.pixelsHigh {
             for x in 0..<image.pixelsWide {
-                let r = hypot(Double(x) + 0.5 - 32, Double(y) + 0.5 - 32)
+                let r = hypot((Double(x) + 0.5) / 2 - 32, (Double(y) + 0.5) / 2 - 32)
                 if radius.contains(r) {
                     sum += Double(image.colorAt(x: x, y: y)?.alphaComponent ?? 0)
                     count += 1

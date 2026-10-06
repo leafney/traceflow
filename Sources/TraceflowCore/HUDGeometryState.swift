@@ -3,19 +3,23 @@ import CoreGraphics
 /// Keeps the intended reference separate from the screen-clamped display frame.
 public struct HUDGeometryState {
     public private(set) var interaction: HUDInteractionState
+    public private(set) var displayStyle: HUDDisplayStyle
     public private(set) var transparency: Int
     public private(set) var iconVisibilityMode: HUDIconVisibilityMode
     public private(set) var reference: CGRect?
 
-    public init(transparency: Int, pinned: Bool, iconVisibilityMode: HUDIconVisibilityMode = .automatic) {
+    public init(transparency: Int, pinned: Bool, iconVisibilityMode: HUDIconVisibilityMode = .automatic, displayStyle: HUDDisplayStyle = .standard) {
         self.transparency = HUDBackgroundAppearance.normalize(Double(transparency))
         self.iconVisibilityMode = iconVisibilityMode
+        self.displayStyle = displayStyle
         interaction = HUDInteractionState(isPinned: pinned)
     }
 
     public var appearance: HUDBackgroundAppearance {
-        HUDBackgroundAppearance(transparency, iconVisibilityMode: iconVisibilityMode)
+        HUDBackgroundAppearance(transparency, iconVisibilityMode: iconVisibilityMode, displayStyle: displayStyle)
     }
+
+    public mutating func setDisplayStyle(_ style: HUDDisplayStyle) { displayStyle = style }
 
     public mutating func setIconVisibilityMode(_ mode: HUDIconVisibilityMode) {
         iconVisibilityMode = mode

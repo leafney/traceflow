@@ -1,6 +1,12 @@
 import Foundation
 import CoreFoundation
 
+public enum HUDDisplayStyle: String, CaseIterable, Identifiable, Sendable {
+    case standard, compact
+    public var id: String { rawValue }
+    public var menuTitle: String { self == .standard ? "标准" : "精简" }
+}
+
 public enum HUDRegion: String, Identifiable, Sendable {
     case icon, title, lights
     public var id: String { rawValue }
@@ -56,6 +62,7 @@ public enum HUDTitleColor: String, CaseIterable, Identifiable, Sendable {
 }
 
 public final class HUDPreferences {
+    public static let displayStyleKey = "hudDisplayStyle"
     public static let layoutKey = "hudLayoutMode"
     public static let glowKey = "hudGlowMode"
     public static let legacyGlowKey = "glowStrength"
@@ -68,6 +75,14 @@ public final class HUDPreferences {
 
     public init(defaults: UserDefaults) {
         self.defaults = defaults
+    }
+
+    public func loadDisplayStyle() -> HUDDisplayStyle {
+        defaults.string(forKey: Self.displayStyleKey).flatMap(HUDDisplayStyle.init(rawValue:)) ?? .standard
+    }
+
+    public func saveDisplayStyle(_ style: HUDDisplayStyle) {
+        defaults.set(style.rawValue, forKey: Self.displayStyleKey)
     }
 
     public func loadLayoutMode() -> HUDLayoutMode {

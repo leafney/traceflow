@@ -3,17 +3,20 @@ import CoreGraphics
 
 public struct HUDBackgroundAppearance {
     public static let defaultTransparency = 10
+    public let displayStyle: HUDDisplayStyle
     public let transparency: Int
     public let iconVisibilityMode: HUDIconVisibilityMode
-    public init(_ value: Int, iconVisibilityMode: HUDIconVisibilityMode = .automatic) {
+    public init(_ value: Int, iconVisibilityMode: HUDIconVisibilityMode = .automatic, displayStyle: HUDDisplayStyle = .standard) {
         transparency = Self.normalize(Double(value))
         self.iconVisibilityMode = iconVisibilityMode
+        self.displayStyle = displayStyle
     }
     public static func normalize(_ value: Double) -> Int {
         guard value.isFinite else { return defaultTransparency }
         return Int(min(100, max(0, value)).rounded())
     }
     public static let iconHiddenThreshold = 80
+    /// Legacy standard-style decoration visibility, independent of compact display style.
     public var compact: Bool {
         switch iconVisibilityMode {
         case .automatic: transparency >= Self.iconHiddenThreshold
@@ -21,14 +24,16 @@ public struct HUDBackgroundAppearance {
         case .alwaysHide: true
         }
     }
+    public var resolvedIconFraction: Double { displayStyle == .compact ? 0 : (compact ? 0 : 1) }
     public var backgroundAlpha: Double { 1 - Double(transparency) / 100 }
     public var materialAlpha: Double { Double(transparency) / 100 }
     public func size(_ layout: HUDLayoutMode) -> CGSize {
-        let length: CGFloat = compact ? 380 : 420
+        let length: CGFloat = displayStyle == .compact ? HUDMetrics.compactLongAxis : (compact ? 380 : 420)
         return layout.isHorizontal ? CGSize(width: length, height: 40) : CGSize(width: 40, height: length)
     }
     public func displayFrame(_ reference: CGRect, layout: HUDLayoutMode) -> CGRect {
-        let offset: CGFloat = compact ? 40 : 0
+        let length = layout.isHorizontal ? size(layout).width : size(layout).height
+        let offset: CGFloat = HUDMetrics.longAxis - length
         return CGRect(origin: CGPoint(x: reference.minX + (layout == .horizontalRight ? offset : 0),
                                       y: reference.minY + (layout == .verticalTop ? offset : 0)), size: size(layout))
     }

@@ -6,6 +6,7 @@ struct HUDView: View {
     @ObservedObject var presentation: HUDWindowPresentation
     // Layout belongs to this window's lifetime. The model can publish the next
     // layout before the controller retires this hosting tree on the main queue.
+    let style: HUDDisplayStyle
     let layout: HUDLayoutMode
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
@@ -15,10 +16,11 @@ struct HUDView: View {
                   presentation: HUDWindowPresentation(model: model))
     }
 
-    init(model: AppModel, layout: HUDLayoutMode, presentation: HUDWindowPresentation) {
+    init(model: AppModel, layout: HUDLayoutMode, style: HUDDisplayStyle? = nil, presentation: HUDWindowPresentation) {
         _model = ObservedObject(wrappedValue: model)
         _presentation = ObservedObject(wrappedValue: presentation)
         self.layout = layout
+        self.style = style ?? model.hudDisplayStyle
     }
 
     // displayTitle includes the project prefix; the HUD shows only the session.
@@ -33,8 +35,8 @@ struct HUDView: View {
             case .verticalTop, .verticalBottom: verticalContent
             }
         }
-        .frame(width: layout.isHorizontal ? (380 + 40 * model.hudIconFraction) : HUDMetrics.shortAxis,
-               height: layout.isHorizontal ? HUDMetrics.shortAxis : (380 + 40 * model.hudIconFraction))
+        .frame(width: layout.isHorizontal ? (style == .compact ? HUDMetrics.compactLongAxis : 380 + 40 * model.hudIconFraction) : HUDMetrics.shortAxis,
+               height: layout.isHorizontal ? HUDMetrics.shortAxis : (style == .compact ? HUDMetrics.compactLongAxis : 380 + 40 * model.hudIconFraction))
         .overlay(Capsule().stroke(.white.opacity((colorScheme == .dark ? 0.16 : 0.24) * HUDBackgroundAppearance(model.hudBackgroundTransparency).backgroundAlpha), lineWidth: 0.5))
         .contentShape(Capsule())
         .accessibilityElement(children: .ignore)
@@ -49,10 +51,15 @@ struct HUDView: View {
                     HStack(spacing: HUDMetrics.lightSpacing) { lights }
                         .frame(width: HUDMetrics.lightAreaLength, height: HUDMetrics.shortAxis)
                 case .icon:
-                    icon.opacity(model.hudIconFraction)
-                        .frame(width: HUDMetrics.iconLength * model.hudIconFraction, height: HUDMetrics.shortAxis).clipped()
+                    if style == .compact {
+                        SessionMarkerView(colorHex: presentation.displayedSession?.persisted.markerColorHex)
+                            .frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
+                    } else {
+                        icon.opacity(model.hudIconFraction)
+                            .frame(width: HUDMetrics.iconLength * model.hudIconFraction, height: HUDMetrics.shortAxis).clipped()
+                    }
                 case .title:
-                    titleRegion(vertical: false)
+                    if style == .standard { titleRegion(vertical: false) }
                 }
             }
         }
@@ -66,10 +73,15 @@ struct HUDView: View {
                     VStack(spacing: HUDMetrics.lightSpacing) { lights }
                         .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.lightAreaLength)
                 case .icon:
-                    icon.opacity(model.hudIconFraction)
-                        .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
+                    if style == .compact {
+                        SessionMarkerView(colorHex: presentation.displayedSession?.persisted.markerColorHex)
+                            .frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
+                    } else {
+                        icon.opacity(model.hudIconFraction)
+                            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
+                    }
                 case .title:
-                    titleRegion(vertical: true)
+                    if style == .standard { titleRegion(vertical: true) }
                 }
             }
         }

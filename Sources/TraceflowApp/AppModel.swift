@@ -40,6 +40,7 @@ final class AppModel: ObservableObject {
             logger.log(SessionEventLogFormatter.carouselSettings(mode: timingMode, uniformDuration: displayDuration))
         }
     }
+    @Published var hudDisplayStyle: HUDDisplayStyle { didSet { hudPreferences.saveDisplayStyle(hudDisplayStyle) } }
     @Published var hudLayoutMode: HUDLayoutMode { didSet { hudPreferences.saveLayoutMode(hudLayoutMode) } }
     @Published var hudGlowMode: HUDGlowMode { didSet { hudPreferences.saveGlowMode(hudGlowMode) } }
     @Published var hudTitleColor: HUDTitleColor { didSet { hudPreferences.saveTitleColor(hudTitleColor) } }
@@ -96,6 +97,7 @@ final class AppModel: ObservableObject {
         isHUDVisible = defaults.bool(forKey: "hudVisible")
         displayDuration = [3.0, 5.0, 10.0].contains(defaults.double(forKey: "displayDuration")) ? defaults.double(forKey: "displayDuration") : 5
         timingMode = defaults.string(forKey: "carouselTimingMode").flatMap(CarouselTimingMode.init(rawValue:)) ?? .uniform
+        hudDisplayStyle = hudPreferences.loadDisplayStyle()
         hudLayoutMode = hudPreferences.loadLayoutMode()
         hudGlowMode = hudPreferences.loadGlowMode()
         hudTitleColor = hudPreferences.loadTitleColor()
@@ -105,7 +107,7 @@ final class AppModel: ObservableObject {
         hudIconVisibilityMode = savedIconMode
         transparencyDraft = HUDTransparencyDraft(savedTransparency)
         hudBackgroundTransparency = savedTransparency
-        hudIconFraction = HUDBackgroundAppearance(savedTransparency, iconVisibilityMode: savedIconMode).compact ? 0 : 1
+        hudIconFraction = HUDBackgroundAppearance(savedTransparency, iconVisibilityMode: savedIconMode, displayStyle: hudDisplayStyle).resolvedIconFraction
         scheduler.updateTimingConfiguration(CarouselTimingConfiguration(mode: timingMode, uniformDuration: displayDuration))
         expandedProjectKeys = Set(defaults.stringArray(forKey: "expandedProjectKeys") ?? [])
         restoreSessions()

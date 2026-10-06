@@ -194,6 +194,40 @@ final class AppModel: ObservableObject {
         refreshSessions(); persistSessions()
     }
 
+    @Published var markerColorErrorMessage: String?
+
+    func setMarkerColor(_ raw: String, sessionID: String) throws {
+        guard var machine = machines[sessionID] else { throw SessionMarkerColorError.missingSession }
+        guard sessionDataHealth.allowsSaving else { throw SessionMarkerColorError.protectedData }
+        guard let color = SessionMarkerColor.normalized(raw) else { throw SessionMarkerColorError.invalidColor }
+        guard machine.snapshot.persisted.markerColorHex != color else { return }
+        var persisted = machine.snapshot.persisted
+        persisted.markerColorHex = color
+        machine.updatePersistedMetadata(persisted)
+        var candidate: [PersistedSession] = machines.values.map { current in
+            current.snapshot.id == sessionID ? persisted : current.snapshot.persisted
+        }
+        candidate.sort { left, right in
+            if left.rotationIndex == right.rotationIndex { return left.id < right.id }
+            return left.rotationIndex < right.rotationIndex
+        }
+        do { try sessionStore.save(candidate) }
+        catch { sessionDataHealth = sessionStore.health; throw SessionMarkerColorError.writeFailed }
+        sessionDataHealth = sessionStore.health
+        machines[sessionID] = machine
+        publishSessions()
+        if displayedSession?.id == sessionID { updateDisplay(sessionID) }
+    }
+
+    private func fillMarkerColors() {
+        do {
+            let records = try SessionMarkerColor.fillingMissing(in: machines.values.map { $0.snapshot.persisted })
+            for record in records { machines[record.id]?.updatePersistedMetadata(record) }
+        } catch {
+            markerColorErrorMessage = "会话颜色分配失败"
+        }
+    }
+
     func setCustomTitle(_ raw: String, sessionID: String) throws {
         try saveCustomTitle(SessionTitleEditor.normalizedTitle(raw), sessionID: sessionID)
     }
@@ -483,6 +517,7 @@ final class AppModel: ObservableObject {
         ))
         localCommunicationHealth = LocalCommunicationHealth(state: .healthy, detail: "最近成功收到 Hook 事件")
         machines[id] = machine
+        fillMarkerColors()
         let snapshot = machine.snapshot
         publishSessions()
         let membershipDecision = scheduler.updateSessions(sessions, now: Date(), updateExistingStates: false, processNewlyIncluded: false)
@@ -561,8 +596,10 @@ final class AppModel: ObservableObject {
         do {
             let restored = try sessionStore.load()
             for persisted in restored { machines[persisted.sessionID] = SessionStateMachine(snapshot: SessionSnapshot(persisted: persisted, state: .idle)); nextRotationIndex = max(nextRotationIndex, persisted.rotationIndex + 1) }
+            fillMarkerColors()
             refreshSessions()
             sessionDataHealth = sessionStore.health
+            if sessions.map(\.persisted) != restored { persistSessions() }
         } catch {
             sessionDataHealth = sessionStore.health
             logger.log("error=session_store_read")
@@ -601,6 +638,7 @@ final class AppModel: ObservableObject {
                 let live = machine.snapshot.persisted
                 merged.isIncludedInHUD = live.isIncludedInHUD
                 merged.customTitle = live.customTitle
+                merged.markerColorHex = live.markerColorHex
                 merged.lastActivityAt = max(live.lastActivityAt ?? merged.lastActivityAt ?? .distantPast, merged.lastActivityAt ?? .distantPast)
                 machine.updatePersistedMetadata(merged)
                 mergedMachines[persisted.sessionID] = machine
@@ -613,6 +651,7 @@ final class AppModel: ObservableObject {
             }
         }
         machines = mergedMachines
+        fillMarkerColors()
         nextRotationIndex = result.nextRotationIndex
         refreshSessions()
         let saved = persistSessions()

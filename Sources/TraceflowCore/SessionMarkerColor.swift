@@ -45,23 +45,54 @@ public enum SessionMarkerColor {
         return values.filter { seen.insert($0).inserted }
     }()
 
-    public static func allocate(occupied raw: Set<String>) throws -> String {
-        let occupied = Set(raw.compactMap(normalized))
-        if occupied.isEmpty { return "#477EE8" }
-        let channels = occupied.compactMap(rgb)
-        var best: String?
-        var bestScore = -Double.infinity
-        for candidate in candidates where candidate != placeholder && !occupied.contains(candidate) {
-            let c = rgb(candidate)!
-            let score = channels.map { other in
-                0.30 * pow(Double(c.red - other.red), 2)
-                    + 0.59 * pow(Double(c.green - other.green), 2)
-                    + 0.11 * pow(Double(c.blue - other.blue), 2)
-            }.min() ?? 0
-            if score > bestScore { best = candidate; bestScore = score }
+    private static let candidateRGB = candidates.map { rgb($0)! }
+
+    /// Keeps max-min scores across a batch. Every newly occupied color updates
+    /// each candidate once, rather than recomputing all previous distances.
+    private struct Allocator {
+        var occupied: Set<String>
+        var scores = [Double](repeating: .infinity, count: candidates.count)
+
+        init(occupied: Set<String>) {
+            self.occupied = occupied
+            for color in occupied { updateScores(with: rgb(color)!) }
         }
-        if let best { return best }
-        return try firstUnused(occupied: occupied)
+
+        mutating func updateScores(with color: (red: Int, green: Int, blue: Int)) {
+            for index in candidates.indices {
+                let c = candidateRGB[index]
+                let distance = 0.30 * pow(Double(c.red - color.red), 2)
+                    + 0.59 * pow(Double(c.green - color.green), 2)
+                    + 0.11 * pow(Double(c.blue - color.blue), 2)
+                scores[index] = min(scores[index], distance)
+            }
+        }
+
+        mutating func next() throws -> String {
+            var selected: String?
+            var bestScore = -Double.infinity
+            if occupied.isEmpty {
+                selected = "#477EE8"
+            } else {
+                for index in candidates.indices {
+                    let candidate = candidates[index]
+                    guard candidate != placeholder, !occupied.contains(candidate) else { continue }
+                    if scores[index] > bestScore {
+                        selected = candidate
+                        bestScore = scores[index]
+                    }
+                }
+            }
+            let color = try selected ?? firstUnused(occupied: occupied)
+            occupied.insert(color)
+            updateScores(with: rgb(color)!)
+            return color
+        }
+    }
+
+    public static func allocate(occupied raw: Set<String>) throws -> String {
+        var allocator = Allocator(occupied: Set(raw.compactMap(normalized)))
+        return try allocator.next()
     }
 
     // Separate bounded fallback permits testing exhaustion without allocating millions of records.
@@ -75,18 +106,22 @@ public enum SessionMarkerColor {
 
     public static func fillingMissing(in sessions: [PersistedSession]) throws -> [PersistedSession] {
         var result = sessions
-        var occupied = Set(sessions.compactMap { normalized($0.markerColorHex) })
+        let colors = sessions.map { normalized($0.markerColorHex) }
+        guard colors.contains(where: { $0 == nil }) else {
+            for index in result.indices { result[index].markerColorHex = colors[index] }
+            return result
+        }
+        var allocator = Allocator(occupied: Set(colors.compactMap { $0 }))
         let indices = sessions.indices.sorted {
             let a = sessions[$0], b = sessions[$1]
             return a.rotationIndex == b.rotationIndex ? a.id < b.id : a.rotationIndex < b.rotationIndex
         }
         for index in indices {
-            if let color = normalized(result[index].markerColorHex) {
+            if let color = colors[index] {
                 result[index].markerColorHex = color
             } else {
-                let color = try allocate(occupied: occupied)
+                let color = try allocator.next()
                 result[index].markerColorHex = color
-                occupied.insert(color)
             }
         }
         return result

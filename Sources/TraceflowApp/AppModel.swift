@@ -262,9 +262,9 @@ final class AppModel: ObservableObject {
         requestSessionWrite()
     }
 
-    private func fillMarkerColors() {
+    private func fillMarkerColors(now: Date) {
         do {
-            let records = try SessionMarkerColor.fillingMissing(in: machines.values.map { $0.snapshot.persisted })
+            let records = try SessionMarkerColor.fillingMissing(in: machines.values.map { $0.snapshot.persisted }, now: now)
             for record in records { machines[record.id]?.updatePersistedMetadata(record) }
         } catch {
             markerColorErrorMessage = "会话颜色分配失败"
@@ -564,7 +564,7 @@ final class AppModel: ObservableObject {
         ))
         localCommunicationHealth = LocalCommunicationHealth(state: .healthy, detail: "最近成功收到 Hook 事件")
         machines[id] = machine
-        if machine.snapshot.persisted.markerColorHex == nil { fillMarkerColors() }
+        if machine.snapshot.persisted.markerColorHex == nil { fillMarkerColors(now: Date()) }
         let snapshot = machine.snapshot
         publishSessions()
         let membershipDecision = scheduler.updateSessions(sessions, now: Date(), updateExistingStates: false, processNewlyIncluded: false)
@@ -643,7 +643,7 @@ final class AppModel: ObservableObject {
         do {
             let restored = try sessionStore.load()
             for persisted in restored { machines[persisted.sessionID] = SessionStateMachine(snapshot: SessionSnapshot(persisted: persisted, state: .idle)); nextRotationIndex = max(nextRotationIndex, persisted.rotationIndex + 1) }
-            fillMarkerColors()
+            fillMarkerColors(now: Date())
             refreshSessions()
             sessionDataHealth = sessionStore.health
             if sessions.map(\.persisted) != restored { persistSessions() }
@@ -840,7 +840,7 @@ final class AppModel: ObservableObject {
             }
         }
         machines = mergedMachines
-        fillMarkerColors()
+        fillMarkerColors(now: Date())
         nextRotationIndex = result.nextRotationIndex
         refreshSessions()
         let resultCounts = (added: result.addedCount, updated: result.updatedCount)

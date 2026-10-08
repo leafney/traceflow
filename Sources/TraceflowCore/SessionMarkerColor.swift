@@ -104,26 +104,32 @@ public enum SessionMarkerColor {
         throw SessionMarkerColorError.exhausted
     }
 
-    public static func fillingMissing(in sessions: [PersistedSession]) throws -> [PersistedSession] {
+    public static let historyWindow: TimeInterval = 7 * 24 * 60 * 60
+
+    public static func isHistorical(_ session: PersistedSession, now: Date) -> Bool {
+        now.timeIntervalSince(session.lastActivityAt ?? session.lastUpdatedAt) > historyWindow
+    }
+
+    public static func fillingMissing(in sessions: [PersistedSession], now: Date) throws -> [PersistedSession] {
         var result = sessions
-        let colors = sessions.map { normalized($0.markerColorHex) }
-        guard colors.contains(where: { $0 == nil }) else {
-            for index in result.indices { result[index].markerColorHex = colors[index] }
-            return result
+        var missing: [Int] = []
+        var occupied = Set<String>()
+        for index in result.indices {
+            if isHistorical(result[index], now: now) {
+                result[index].markerColorHex = nil
+            } else {
+                result[index].markerColorHex = normalized(result[index].markerColorHex)
+                if let color = result[index].markerColorHex { occupied.insert(color) }
+                else { missing.append(index) }
+            }
         }
-        var allocator = Allocator(occupied: Set(colors.compactMap { $0 }))
-        let indices = sessions.indices.sorted {
+        guard !missing.isEmpty else { return result }
+        var allocator = Allocator(occupied: occupied)
+        missing.sort {
             let a = sessions[$0], b = sessions[$1]
             return a.rotationIndex == b.rotationIndex ? a.id < b.id : a.rotationIndex < b.rotationIndex
         }
-        for index in indices {
-            if let color = colors[index] {
-                result[index].markerColorHex = color
-            } else {
-                let color = try allocator.next()
-                result[index].markerColorHex = color
-            }
-        }
+        for index in missing { result[index].markerColorHex = try allocator.next() }
         return result
     }
 }

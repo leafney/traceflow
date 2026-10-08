@@ -14,6 +14,17 @@ cd "$repo_root"
 module_cache="$test_home/module-cache"
 /bin/mkdir -p "$module_cache"
 SWIFTPM_MODULECACHE_OVERRIDE="$module_cache" CLANG_MODULE_CACHE_PATH="$module_cache" swift build -c release >/dev/null
+sessions="$test_home/Library/Application Support/Traceflow/sessions.json"
+/usr/bin/python3 -c '
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps({"schema_version": 1, "sessions": [{
+    "sessionID": "e2e-history", "agentType": "codex", "isIncludedInHUD": False,
+    "discoveredAt": "1970-01-01T00:01:40Z", "lastUpdatedAt": "1970-01-01T00:01:40Z",
+    "rotationIndex": 0, "markerColorHex": "#477EE8", "customTitle": "历史标题保留"
+}]}), encoding="utf-8")
+' "$sessions"
 TRACEFLOW_HOME="$test_home" .build/release/Traceflow &
 app_pid="$!"
 
@@ -33,14 +44,22 @@ send_event '{"session_id":"e2e-session","cwd":"/tmp/traceflow-demo","hook_event_
 send_event '{"session_id":"e2e-session","cwd":"/tmp/traceflow-demo","hook_event_name":"Stop","turn_id":"turn-1"}'
 send_event '{"session_id":"e2e-session","cwd":"/tmp/traceflow-demo","hook_event_name":"SessionEnd","turn_id":"turn-1"}'
 
-sessions="$test_home/Library/Application Support/Traceflow/sessions.json"
 attempt=0
-while [ ! -f "$sessions" ] && [ "$attempt" -lt 50 ]; do /bin/sleep 0.1; attempt=$((attempt + 1)); done
+while ! /usr/bin/python3 -c '
+import json, sys
+assert any(row["sessionID"] == "e2e-session" for row in json.load(open(sys.argv[1]))["sessions"])
+' "$sessions" 2>/dev/null && [ "$attempt" -lt 50 ]; do /bin/sleep 0.1; attempt=$((attempt + 1)); done
 /usr/bin/python3 -c '
 import json, sys
 document = json.load(open(sys.argv[1], encoding="utf-8"))
-session = document["sessions"][0]
+records = {row["sessionID"]: row for row in document["sessions"]}
+history = records["e2e-history"]
+assert history.get("markerColorHex") is None
+assert history["customTitle"] == "历史标题保留"
+assert history["lastUpdatedAt"] == "1970-01-01T00:01:40Z"
+session = records["e2e-session"]
 assert session["sessionID"] == "e2e-session"
+assert session["markerColorHex"] == "#477EE8", "历史颜色不能占用首选颜色"
 assert session["projectName"] == "traceflow-demo"
 assert session["isIncludedInHUD"] is False
 assert "settingsListSortAt" in session
@@ -49,7 +68,7 @@ assert "conversationSummary" not in session
 
 log="$test_home/Library/Logs/Traceflow/traceflow.log"
 attempt=0
-while [ ! -f "$log" ] && [ "$attempt" -lt 50 ]; do /bin/sleep 0.1; attempt=$((attempt + 1)); done
+while ! /usr/bin/grep -q 'event=SessionEnd state=completed->idle' "$log" 2>/dev/null && [ "$attempt" -lt 50 ]; do /bin/sleep 0.1; attempt=$((attempt + 1)); done
 [ -f "$log" ]
 /usr/bin/grep -q 'event=UserPromptSubmit state=idle->running' "$log"
 /usr/bin/grep -q 'event=UserPromptSubmit state=idle->running project="traceflow-demo" session_id="e2e-session" title="traceflow-demo · 实现本地闭环"' "$log"

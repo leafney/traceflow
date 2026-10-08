@@ -75,7 +75,7 @@ final class SessionColorPanelController {
             guard case .failure = result, let self,
                   self.generation == token, self.sessionID == id else { return }
             self.close()
-            model?.markerColorErrorMessage = "颜色保存失败，未更改会话颜色"
+            model?.markerColorErrorMessage = "会话数据保存失败，请重试保存"
         }
     }
 

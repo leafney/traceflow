@@ -270,7 +270,15 @@ final class AppModel: ObservableObject {
                 if let edit = pendingColors[record.id] { record.markerColorHex = edit.value }
                 return record
             }
-            let records = try SessionMarkerColor.fillingMissing(in: effective, now: now)
+            // A failed manual save retains the last committed color. Reserve that
+            // fallback as well, so newly allocated colors remain unique after retry.
+            let fallbackColors = Set(machines.values.compactMap { machine -> String? in
+                let record = machine.snapshot.persisted
+                guard pendingColors[record.id] != nil,
+                      !SessionMarkerColor.isHistorical(record, now: now) else { return nil }
+                return record.markerColorHex
+            })
+            let records = try SessionMarkerColor.fillingMissing(in: effective, now: now, reserving: fallbackColors)
             var superseded = false
             for record in records {
                 if let pending = pendingColors[record.id] {
@@ -283,6 +291,7 @@ final class AppModel: ObservableObject {
                     superseded = true
                 } else if var machine = machines[record.id] {
                     var current = machine.snapshot.persisted
+                    guard current.markerColorHex != record.markerColorHex else { continue }
                     current.markerColorHex = record.markerColorHex
                     machine.updatePersistedMetadata(current)
                     machines[record.id] = machine

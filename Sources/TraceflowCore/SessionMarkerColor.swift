@@ -110,10 +110,12 @@ public enum SessionMarkerColor {
         now.timeIntervalSince(session.lastActivityAt ?? session.lastUpdatedAt) > historyWindow
     }
 
-    public static func fillingMissing(in sessions: [PersistedSession], now: Date) throws -> [PersistedSession] {
+    /// Extra reservations are recent records' saved fallbacks during pending edits.
+    public static func fillingMissing(in sessions: [PersistedSession], now: Date,
+                                      reserving rawColors: Set<String> = []) throws -> [PersistedSession] {
         var result = sessions
         var missing: [Int] = []
-        var occupied = Set<String>()
+        var occupied = Set(rawColors.compactMap(normalized))
         for index in result.indices {
             if isHistorical(result[index], now: now) {
                 result[index].markerColorHex = nil

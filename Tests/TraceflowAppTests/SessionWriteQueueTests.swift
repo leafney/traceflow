@@ -191,6 +191,45 @@ final class SessionWriteQueueTests: XCTestCase {
         XCTAssertNil(try SessionStore(url: TraceflowPaths.sessions()).load().first { $0.id == "old" }?.markerColorHex)
     }
 
+    func testFailedPendingManualSaveDoesNotCollideWithNewAutomaticColorOnRetry() async throws {
+        _ = NSApplication.shared
+        let gate = SessionWriteGate()
+        let fixture = try SessionIntegrationFixture(beforeWrite: gate.beforeWrite)
+        defer { gate.release(); fixture.cleanUp() }
+        try await fixture.hook("a", event: .sessionStart)
+        let choice = "#123456"
+        // Without reserving the committed fallback, B would receive this exact color.
+        let fallback = try SessionMarkerColor.allocate(occupied: [choice])
+        try await fixture.model.setMarkerColor(fallback, sessionID: "a")
+        gate.arm()
+        fixture.model.requestMarkerColor(choice, sessionID: "a") { _ in }
+        try await fixture.waitUntil { gate.isBlocked }
+        try fixture.writeThreads(["b"])
+        fixture.model.syncCodexSessions()
+        try await fixture.waitUntil { !fixture.model.isSyncingSessions }
+        let generated = try XCTUnwrap(fixture.session("b").persisted.markerColorHex)
+        XCTAssertNotEqual(generated, fallback)
+        XCTAssertNotEqual(generated, choice)
+        let directory = TraceflowPaths.sessions().deletingLastPathComponent()
+        let backup = fixture.root.appendingPathComponent("data-backup")
+        try FileManager.default.moveItem(at: directory, to: backup)
+        try Data("blocked".utf8).write(to: directory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.moveItem(at: backup, to: directory)
+        }
+        gate.release()
+        await assertAsyncThrows(try await fixture.model.flushSessionWrites())
+        XCTAssertEqual(try fixture.session("a").persisted.markerColorHex, fallback)
+        XCTAssertEqual(try fixture.session("b").persisted.markerColorHex, generated)
+        try FileManager.default.removeItem(at: directory)
+        try FileManager.default.moveItem(at: backup, to: directory)
+        fixture.model.retrySessionSave()
+        try await fixture.model.flushSessionWrites()
+        let colors = try SessionStore(url: TraceflowPaths.sessions()).load().compactMap(\.markerColorHex)
+        XCTAssertEqual(Set(colors), [fallback, generated])
+    }
+
     func testContinuousPanelChoicesCoalesceAndCloseRetargetKeepFinalValues() async throws {
         _ = NSApplication.shared
         let gate = SessionWriteGate()

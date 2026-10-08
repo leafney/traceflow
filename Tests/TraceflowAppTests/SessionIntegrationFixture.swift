@@ -13,7 +13,7 @@ final class SessionIntegrationFixture {
     private let environment: [String: String?]
     private let initialWindows: Set<Int>
 
-    init(beforeWrite: (() -> Void)? = nil) throws {
+    init(beforeWrite: (() -> Void)? = nil, initialSessions: [PersistedSession] = []) throws {
         // A short path keeps the Unix socket below sockaddr_un's path limit.
         root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
             .appendingPathComponent("tf-" + String(UUID().uuidString.prefix(8)))
@@ -42,6 +42,7 @@ final class SessionIntegrationFixture {
         }
         setenv("TRACEFLOW_HOME", root.path, 1)
         setenv("ZDOTDIR", root.path, 1)
+        if !initialSessions.isEmpty { try SessionStore(url: TraceflowPaths.sessions()).save(initialSessions) }
         model = AppModel(defaults: defaults, sessionStore: SessionStore(url: TraceflowPaths.sessions(), beforeWrite: beforeWrite))
         model.isHUDVisible = false
         model.startListening()
@@ -61,6 +62,10 @@ final class SessionIntegrationFixture {
 
     func session(_ id: String) throws -> SessionSnapshot {
         try XCTUnwrap(model.sessions.first { $0.id == id })
+    }
+
+    func writeThreads(_ threads: [CodexThreadSummary]) throws {
+        try JSONEncoder().encode(threads).write(to: root.appendingPathComponent("threads.json"), options: .atomic)
     }
 
     func writeThreads(_ ids: [String]) throws {

@@ -264,8 +264,31 @@ final class AppModel: ObservableObject {
 
     private func fillMarkerColors(now: Date) {
         do {
-            let records = try SessionMarkerColor.fillingMissing(in: machines.values.map { $0.snapshot.persisted }, now: now)
-            for record in records { machines[record.id]?.updatePersistedMetadata(record) }
+            // Pending choices reserve colors without publishing an unsaved manual edit.
+            let effective = machines.values.map { machine in
+                var record = machine.snapshot.persisted
+                if let edit = pendingColors[record.id] { record.markerColorHex = edit.value }
+                return record
+            }
+            let records = try SessionMarkerColor.fillingMissing(in: effective, now: now)
+            var superseded = false
+            for record in records {
+                if let pending = pendingColors[record.id] {
+                    guard pending.value != record.markerColorHex else { continue }
+                    // Invalidate older commits while keeping every accepted caller waiting
+                    // for the replacement value to reach disk.
+                    nextEditToken += 1
+                    pendingColors[record.id] = PendingEdit(value: record.markerColorHex,
+                        token: nextEditToken, firstToken: nextEditToken, completions: pending.completions)
+                    superseded = true
+                } else if var machine = machines[record.id] {
+                    var current = machine.snapshot.persisted
+                    current.markerColorHex = record.markerColorHex
+                    machine.updatePersistedMetadata(current)
+                    machines[record.id] = machine
+                }
+            }
+            if superseded { requestSessionWrite() }
         } catch {
             markerColorErrorMessage = "会话颜色分配失败"
         }
@@ -508,7 +531,7 @@ final class AppModel: ObservableObject {
                     && discovery.permitsAutomaticImport($0.id, now: now)
             }
             : threads
-        mergeCodexThreads(allowed, isManual: request == .manual)
+        mergeCodexThreads(allowed, isManual: request == .manual, now: now)
         finishDiscovery(request, now: now)
     }
 
@@ -547,10 +570,10 @@ final class AppModel: ObservableObject {
             logger.log(DiagnosticLogFormatter.event(stage: "app.internal_ignored", envelope: envelope, appliedAt: Date(), extras: [("reason", "internal_source")]))
             return
         }
-        guard discovery.permitsAutomaticImport(id, now: Date()) else { return }
-        var machine = machines[id] ?? makeMachine(for: envelope)
-        let result = machine.apply(envelope, now: Date())
         let appliedAt = Date()
+        guard discovery.permitsAutomaticImport(id, now: appliedAt) else { return }
+        var machine = machines[id] ?? makeMachine(for: envelope)
+        let result = machine.apply(envelope, now: appliedAt)
         guard result.accepted else {
             logger.log("event=discarded reason=\(String(describing: result.rejection))")
             logger.log(DiagnosticLogFormatter.event(stage: "app.rejected", envelope: envelope, appliedAt: appliedAt, extras: [("reason", String(describing: result.rejection))]))
@@ -564,8 +587,8 @@ final class AppModel: ObservableObject {
         ))
         localCommunicationHealth = LocalCommunicationHealth(state: .healthy, detail: "最近成功收到 Hook 事件")
         machines[id] = machine
-        if machine.snapshot.persisted.markerColorHex == nil { fillMarkerColors(now: Date()) }
-        let snapshot = machine.snapshot
+        fillMarkerColors(now: appliedAt)
+        let snapshot = machines[id]!.snapshot
         publishSessions()
         let membershipDecision = scheduler.updateSessions(sessions, now: Date(), updateExistingStates: false, processNewlyIncluded: false)
         let eventDecision = scheduler.reportStateChange(sessionID: id, newState: machine.snapshot.state, stateChanged: result.stateChanged, now: Date())
@@ -702,12 +725,13 @@ final class AppModel: ObservableObject {
     private func finishSessionWrite(_ result: Result<Void, Error>, health: SessionDataHealth,
                                     revision: Int, colors: [String: PendingEdit], titles: [String: PendingEdit]) {
         writeInFlight = false
-        if case .failure = result, !pendingColors.isEmpty {
-            markerColorErrorMessage = "颜色保存失败，未更改会话颜色"
+        if case .failure = result {
+            markerColorErrorMessage = "会话数据保存失败，请重试保存"
         }
         sessionDataHealth = health
         switch result {
         case .success:
+            if markerColorErrorMessage == "会话数据保存失败，请重试保存" { markerColorErrorMessage = nil }
             // Merge only the saved fields into current metadata. Hooks, deletion,
             // inclusion and discovery may have changed the rest during the write.
             var callbacks: [(Result<Void, Error>) -> Void] = []
@@ -808,7 +832,7 @@ final class AppModel: ObservableObject {
         requestSessionWrite(completion: completion)
     }
 
-    private func mergeCodexThreads(_ threads: [CodexThreadSummary], isManual: Bool) {
+    private func mergeCodexThreads(_ threads: [CodexThreadSummary], isManual: Bool, now: Date) {
         guard !isShuttingDown else { return }
         let current = machines.values.map(\.snapshot.persisted)
         // Read the preference when merging, not when the asynchronous request starts.
@@ -840,7 +864,7 @@ final class AppModel: ObservableObject {
             }
         }
         machines = mergedMachines
-        fillMarkerColors(now: Date())
+        fillMarkerColors(now: now)
         nextRotationIndex = result.nextRotationIndex
         refreshSessions()
         let resultCounts = (added: result.addedCount, updated: result.updatedCount)

@@ -32,6 +32,165 @@ private final class SessionWriteGate: @unchecked Sendable {
 
 @MainActor
 final class SessionWriteQueueTests: XCTestCase {
+    func testHistoricalPendingChoiceIsSupersededAndOldCommitCannotRestoreIt() async throws {
+        _ = NSApplication.shared
+        let gate = SessionWriteGate()
+        let old = Date(timeIntervalSince1970: 100)
+        let fixture = try SessionIntegrationFixture(beforeWrite: gate.beforeWrite, initialSessions: [
+            PersistedSession(sessionID: "old", discoveredAt: old, lastUpdatedAt: old, rotationIndex: 0)
+        ])
+        defer { gate.release(); fixture.cleanUp() }
+        try await fixture.model.flushSessionWrites()
+        var completions = 0
+        gate.arm()
+        fixture.model.requestMarkerColor("#123456", sessionID: "old") { result in
+            if case .success = result { completions += 1 }
+        }
+        try await fixture.waitUntil { gate.isBlocked }
+        try fixture.writeThreads([String]())
+        fixture.model.syncCodexSessions()
+        try await fixture.waitUntil { !fixture.model.isSyncingSessions }
+        let writes = gate.writes
+        gate.arm()
+        gate.release()
+        try await fixture.waitUntil { gate.writes == writes + 1 && gate.isBlocked }
+        XCTAssertNil(try fixture.session("old").persisted.markerColorHex)
+        XCTAssertEqual(completions, 0, "旧回调不能提前完成被清理取代的编辑")
+        gate.release()
+        try await fixture.model.flushSessionWrites()
+        XCTAssertEqual(completions, 1)
+        XCTAssertNil(try fixture.session("old").persisted.markerColorHex)
+        XCTAssertNil(try SessionStore(url: TraceflowPaths.sessions()).load().first?.markerColorHex)
+    }
+
+    func testHistoricalClearInFlightDoesNotOverwriteReactivatedHook() async throws {
+        _ = NSApplication.shared
+        let gate = SessionWriteGate()
+        let old = Date(timeIntervalSince1970: 100)
+        let fixture = try SessionIntegrationFixture(beforeWrite: gate.beforeWrite, initialSessions: [
+            PersistedSession(sessionID: "old", customTitle: "保留标题", isIncludedInHUD: true,
+                discoveredAt: old, lastUpdatedAt: old, rotationIndex: 0)
+        ])
+        defer { gate.release(); fixture.cleanUp() }
+        try await fixture.model.flushSessionWrites()
+        try await fixture.model.setMarkerColor("#123456", sessionID: "old")
+        try fixture.writeThreads([String]())
+        gate.arm()
+        fixture.model.syncCodexSessions()
+        try await fixture.waitUntil { !fixture.model.isSyncingSessions && gate.isBlocked }
+        XCTAssertNil(try fixture.session("old").persisted.markerColorHex)
+        try await fixture.hook("old", event: .userPromptSubmit, flush: false)
+        let revived = try fixture.session("old")
+        XCTAssertNotNil(revived.persisted.markerColorHex)
+        gate.release()
+        try await fixture.model.flushSessionWrites()
+        XCTAssertEqual(try fixture.session("old"), revived)
+        XCTAssertEqual(fixture.model.displayedSession?.persisted.markerColorHex, revived.persisted.markerColorHex)
+        XCTAssertEqual(try SessionStore(url: TraceflowPaths.sessions()).load(), [try persistedRoundTrip(revived.persisted)])
+    }
+
+    func testSupersededPendingClearCanBeReplacedByReactivationBeforeCommit() async throws {
+        _ = NSApplication.shared
+        let gate = SessionWriteGate()
+        let old = Date(timeIntervalSince1970: 100)
+        let fixture = try SessionIntegrationFixture(beforeWrite: gate.beforeWrite, initialSessions: [
+            PersistedSession(sessionID: "old", discoveredAt: old, lastUpdatedAt: old, rotationIndex: 0)
+        ])
+        defer { gate.release(); fixture.cleanUp() }
+        try await fixture.model.flushSessionWrites()
+        var completed = false
+        gate.arm()
+        fixture.model.requestMarkerColor("#123456", sessionID: "old") { result in
+            if case .success = result { completed = true }
+        }
+        try await fixture.waitUntil { gate.isBlocked }
+        try fixture.writeThreads([String]())
+        fixture.model.syncCodexSessions()
+        try await fixture.waitUntil { !fixture.model.isSyncingSessions }
+        try await fixture.hook("old", event: .permissionRequest, flush: false)
+        XCTAssertFalse(completed)
+        gate.release()
+        try await fixture.model.flushSessionWrites()
+        XCTAssertTrue(completed)
+        let revived = try fixture.session("old")
+        XCTAssertEqual(revived.state, .attention)
+        XCTAssertNotNil(revived.persisted.markerColorHex)
+        XCTAssertEqual(try SessionStore(url: TraceflowPaths.sessions()).load(), [try persistedRoundTrip(revived.persisted)])
+    }
+
+    func testAlreadyGrayHistoricalStartupDoesNotScheduleWrite() async throws {
+        _ = NSApplication.shared
+        let gate = SessionWriteGate()
+        let old = Date(timeIntervalSince1970: 100)
+        let fixture = try SessionIntegrationFixture(beforeWrite: gate.beforeWrite, initialSessions: [
+            PersistedSession(sessionID: "old", discoveredAt: old, lastUpdatedAt: old, rotationIndex: 0)
+        ])
+        defer { fixture.cleanUp() }
+        try await fixture.model.flushSessionWrites()
+        XCTAssertEqual(gate.writes, 0)
+        XCTAssertNil(try fixture.session("old").persisted.markerColorHex)
+    }
+
+    func testRecentPendingManualColorReservesAutomaticAllocation() async throws {
+        _ = NSApplication.shared
+        let gate = SessionWriteGate()
+        let fixture = try SessionIntegrationFixture(beforeWrite: gate.beforeWrite)
+        defer { gate.release(); fixture.cleanUp() }
+        try await fixture.hook("a", event: .sessionStart)
+        let visible = try XCTUnwrap(fixture.session("a").persisted.markerColorHex)
+        // This is the color the old allocator would choose without the pending edit.
+        let choice = try SessionMarkerColor.allocate(occupied: [visible])
+        gate.arm()
+        fixture.model.requestMarkerColor(choice, sessionID: "a") { _ in }
+        try await fixture.waitUntil { gate.isBlocked }
+        try fixture.writeThreads(["b"])
+        fixture.model.syncCodexSessions()
+        try await fixture.waitUntil { !fixture.model.isSyncingSessions }
+        XCTAssertEqual(try fixture.session("a").persisted.markerColorHex, visible)
+        XCTAssertNotEqual(try fixture.session("b").persisted.markerColorHex, choice)
+        gate.release()
+        try await fixture.model.flushSessionWrites()
+        XCTAssertEqual(try fixture.session("a").persisted.markerColorHex, choice)
+        XCTAssertNotEqual(try fixture.session("b").persisted.markerColorHex, choice)
+    }
+
+    func testHistoricalCleanupSaveFailureIsVisibleAndRetryPersistsCleanup() async throws {
+        _ = NSApplication.shared
+        let gate = SessionWriteGate()
+        let old = Date(timeIntervalSince1970: 100)
+        let fixture = try SessionIntegrationFixture(beforeWrite: gate.beforeWrite, initialSessions: [
+            PersistedSession(sessionID: "old", discoveredAt: old, lastUpdatedAt: old, rotationIndex: 0)
+        ])
+        defer { gate.release(); fixture.cleanUp() }
+        try await fixture.model.flushSessionWrites()
+        try await fixture.model.setMarkerColor("#123456", sessionID: "old")
+        try fixture.writeThreads(["recent"])
+        gate.arm()
+        fixture.model.openSettingsWindow()
+        try await fixture.waitUntil { !fixture.model.isDiscoveringRecentSessions && gate.isBlocked }
+        let directory = TraceflowPaths.sessions().deletingLastPathComponent()
+        let backup = fixture.root.appendingPathComponent("data-backup")
+        try FileManager.default.moveItem(at: directory, to: backup)
+        try Data("blocked".utf8).write(to: directory)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.moveItem(at: backup, to: directory)
+        }
+        gate.release()
+        await assertAsyncThrows(try await fixture.model.flushSessionWrites())
+        XCTAssertNil(try fixture.session("old").persisted.markerColorHex)
+        XCTAssertNotNil(fixture.model.markerColorErrorMessage)
+        XCTAssertFalse(fixture.model.sessionDataHealth.allowsSaving)
+        XCTAssertEqual(try SessionStore(url: backup.appendingPathComponent("sessions.json")).load().first?.markerColorHex, "#123456")
+        try FileManager.default.removeItem(at: directory)
+        try FileManager.default.moveItem(at: backup, to: directory)
+        fixture.model.retrySessionSave()
+        try await fixture.model.flushSessionWrites()
+        XCTAssertNil(fixture.model.markerColorErrorMessage)
+        XCTAssertTrue(fixture.model.sessionDataHealth.allowsSaving)
+        XCTAssertNil(try SessionStore(url: TraceflowPaths.sessions()).load().first { $0.id == "old" }?.markerColorHex)
+    }
+
     func testContinuousPanelChoicesCoalesceAndCloseRetargetKeepFinalValues() async throws {
         _ = NSApplication.shared
         let gate = SessionWriteGate()

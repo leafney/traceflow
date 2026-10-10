@@ -77,6 +77,29 @@ final class HUDMarqueeIntegrationTests: XCTestCase {
         preview.bind(coordinator: coordinator, generation: nil, sessionID: b.id, title: b.sessionListTitle)
         XCTAssertEqual(preview.offset, 0)
         XCTAssertEqual(coordinator.state.activeSessionID, "b")
+        coordinator.update(session: a, generation: token)
+        now = 11
+        coordinator.renderFrame()
+        XCTAssertEqual(old.offset, -40, accuracy: 0.001, "快速 A→B→A 时，退场中的旧 A 不能跟随新的 A 继续滚动")
+        let newA = HUDMarqueeNSView(title: a.sessionListTitle, vertical: false, color: .black)
+        newA.bind(coordinator: coordinator, generation: token, sessionID: a.id, title: a.sessionListTitle)
+        XCTAssertEqual(newA.offset, -60, accuracy: 0.001)
+    }
+
+    func testReleasingVisibleControllerStopsApplicationOwnedClock() async throws {
+        let fixture = try await fixture()
+        defer { fixture.cleanUp() }
+        fixture.model.hudDisplayStyle = .medium
+        weak var weakController: HUDPanelController?
+        autoreleasepool {
+            let controller = HUDPanelController(model: fixture.model, defaults: fixture.defaults)
+            weakController = controller
+            controller.show()
+            XCTAssertTrue(fixture.model.hudMarquee.isTicking)
+        }
+        XCTAssertNil(weakController)
+        XCTAssertFalse(fixture.model.hudMarquee.isTicking)
+        XCTAssertNil(fixture.model.hudMarquee.state.activeSessionID)
     }
 
     func testWindowReplacementsHideAndModeChangesRetainProgress() async throws {

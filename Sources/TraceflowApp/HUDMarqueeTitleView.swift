@@ -11,6 +11,7 @@ struct HUDMarqueeTitleView: NSViewRepresentable {
     var reduceMotion = false
     var sessionID: String? = nil
     var generation: UInt64? = nil
+    var contentRevision: UInt64? = nil
     var coordinator: HUDMarqueeCoordinator? = nil
 
     func makeNSView(context: Context) -> HUDMarqueeNSView {
@@ -22,7 +23,7 @@ struct HUDMarqueeTitleView: NSViewRepresentable {
             view.offset = offset
             view.reduceMotion = reduceMotion
         }
-        view.bind(coordinator: coordinator, generation: generation, sessionID: sessionID, title: title)
+        view.bind(coordinator: coordinator, generation: generation, sessionID: sessionID, title: title, contentRevision: contentRevision)
     }
 }
 
@@ -31,6 +32,7 @@ final class HUDMarqueeNSView: NSView {
     private var subscription: AnyCancellable?
     private weak var coordinator: HUDMarqueeCoordinator?
     private var generation: UInt64?
+    private var contentRevision: UInt64?
     private var sessionID: String?
     private var boundTitle: String?
     private var color: HUDTitleColor
@@ -54,11 +56,13 @@ final class HUDMarqueeNSView: NSView {
         }
         if self.color != color { self.color = color; needsDisplay = true }
     }
-    func bind(coordinator: HUDMarqueeCoordinator?, generation: UInt64?, sessionID: String?, title: String) {
-        if self.coordinator !== coordinator || self.generation != generation || self.sessionID != sessionID || boundTitle != title {
+    func bind(coordinator: HUDMarqueeCoordinator?, generation: UInt64?, sessionID: String?, title: String, contentRevision: UInt64? = nil) {
+        let revision = contentRevision ?? coordinator?.contentRevision
+        if self.coordinator !== coordinator || self.generation != generation || self.sessionID != sessionID || boundTitle != title || self.contentRevision != revision {
             subscription = nil
             self.coordinator = coordinator
             self.generation = generation
+            self.contentRevision = revision
             self.sessionID = sessionID
             boundTitle = title
             if let coordinator, generation != nil {
@@ -72,7 +76,7 @@ final class HUDMarqueeNSView: NSView {
     }
 
     private func apply(_ frame: HUDMarqueeCoordinator.Frame) {
-        guard frame.generation == generation, frame.sessionID == sessionID, frame.layout.title == boundTitle else { return }
+        guard frame.generation == generation, frame.contentRevision == contentRevision, frame.sessionID == sessionID, frame.layout.title == boundTitle else { return }
         textLayout = frame.layout
         offset = frame.offset
         reduceMotion = frame.reduceMotion

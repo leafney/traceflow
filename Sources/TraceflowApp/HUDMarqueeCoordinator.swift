@@ -8,6 +8,7 @@ final class HUDMarqueeCoordinator {
     struct Frame {
         let generation: UInt64
         let sessionID: String?
+        let contentRevision: UInt64
         let layout: HUDTitleTextLayout
         let offset: CGFloat
         let reduceMotion: Bool
@@ -15,6 +16,7 @@ final class HUDMarqueeCoordinator {
     let frames = PassthroughSubject<Frame, Never>()
     private(set) var state = HUDTitleMarqueeState()
     private(set) var generation: UInt64 = 0
+    private(set) var contentRevision: UInt64 = 0
     private(set) var currentFrame: Frame?
     private var sessionID: String?
     private var title = "Traceflow"
@@ -94,6 +96,7 @@ final class HUDMarqueeCoordinator {
         guard sessionID != nextID || title != nextTitle || layout == nil else { return }
         let now = clock()
         freeze(now: now) // Outgoing subscribers receive their exact final sample first.
+        contentRevision &+= 1
         sessionID = nextID
         title = nextTitle
         if style == .medium {
@@ -169,7 +172,7 @@ final class HUDMarqueeCoordinator {
     private func emit(now: Double) {
         guard let layout else { currentFrame = nil; return }
         let offset = sessionID.map { state.sample($0, now: now).offset } ?? 0
-        let frame = Frame(generation: generation, sessionID: sessionID, layout: layout,
+        let frame = Frame(generation: generation, sessionID: sessionID, contentRevision: contentRevision, layout: layout,
                           offset: reduceMotion ? 0 : CGFloat(offset), reduceMotion: reduceMotion)
         currentFrame = frame
         frames.send(frame)

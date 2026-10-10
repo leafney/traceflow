@@ -20,8 +20,13 @@ final class HUDDisplayStyleTests: XCTestCase {
             let original = try XCTUnwrap(controller.window)
             let frame = original.frame
             let record = HUDPositionStore(defaults: fixture.defaults).loadResult(layout)
-            fixture.model.hudDisplayStyle = .compact
+            fixture.model.hudDisplayStyle = .medium
             try await fixture.waitUntil { controller.window !== original }
+            let medium = try XCTUnwrap(controller.window)
+            XCTAssertEqual(medium.frame.size, layout.isHorizontal ? CGSize(width: 244, height: 40) : CGSize(width: 40, height: 244))
+            XCTAssertEqual(HUDBackgroundAppearance.referenceFrame(medium.frame, layout: layout), frame)
+            fixture.model.hudDisplayStyle = .compact
+            try await fixture.waitUntil { controller.window !== medium }
             let compact = try XCTUnwrap(controller.window)
             XCTAssertEqual(compact.frame.size, layout.isHorizontal ? CGSize(width: 144, height: 40) : CGSize(width: 40, height: 144))
             XCTAssertEqual(HUDBackgroundAppearance.referenceFrame(compact.frame, layout: layout), frame)

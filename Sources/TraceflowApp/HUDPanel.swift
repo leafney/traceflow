@@ -161,7 +161,10 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     required init?(coder: NSCoder) { nil }
-    deinit { transitionDisplayLink?.invalidate() }
+    deinit {
+        transitionDisplayLink?.invalidate()
+        MainActor.assumeIsolated { hostingView.rootView.presentation.retire() }
+    }
     func show() {
         let placement = synchronizePresentation()
         if placement != .preserveCurrentGeometry { restorePosition() }

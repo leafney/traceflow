@@ -179,6 +179,11 @@ final class HUDMenuTests: XCTestCase {
         delegate.observeHUDState(panel: nil)
         let styles = try XCTUnwrap(menu.item(withTitle: "HUD 显示模式")?.submenu)
         XCTAssertEqual(styles.items.map(\.state), [.on, .off, .off])
+        XCTAssertEqual(styles.items.map(\.title), ["标准", "适中", "精简"])
+        styles.performActionForItem(at: 1)
+        try await fixture.waitUntil { styles.items[1].state == .on }
+        XCTAssertEqual(fixture.model.hudDisplayStyle, .medium)
+        XCTAssertEqual(AppModel(defaults: fixture.defaults).hudDisplayStyle, .medium)
         styles.performActionForItem(at: 2)
         try await fixture.waitUntil { styles.items[2].state == .on }
         XCTAssertEqual(fixture.model.hudDisplayStyle, .compact)

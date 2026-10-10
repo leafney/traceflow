@@ -128,7 +128,11 @@ struct HUDView: View {
 
     @ViewBuilder
     private func titleContent(_ text: String, vertical: Bool) -> some View {
-        if vertical {
+        if style == .medium {
+            HUDMarqueeTitleView(title: text, vertical: vertical, color: model.hudTitleColor, reduceMotion: reduceMotion)
+                .frame(width: vertical ? HUDMetrics.shortAxis : HUDMetrics.mediumTitleLength,
+                       height: vertical ? HUDMetrics.mediumTitleLength : HUDMetrics.shortAxis)
+        } else if vertical {
             VerticalMixedTitleView(title: text, color: model.hudTitleColor)
                 .frame(width: HUDMetrics.shortAxis, height: style == .medium ? HUDMetrics.mediumTitleLength : HUDMetrics.titleLength)
         } else {

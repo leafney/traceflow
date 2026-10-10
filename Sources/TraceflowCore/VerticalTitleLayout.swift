@@ -3,6 +3,7 @@ import Foundation
 public enum VerticalTitleSegment: Equatable, Sendable {
     case latin(String)
     case han(Character)
+    case upright(Character)
     case gap
 }
 
@@ -17,7 +18,7 @@ public struct VerticalTitleLayout: Equatable, Sendable {
 }
 
 public enum VerticalTitleParser {
-    public static func segments(for title: String) -> [VerticalTitleSegment] {
+    public static func segments(for title: String, preserveUnsupportedCharacters: Bool = false) -> [VerticalTitleSegment] {
         let characters = Array(title)
         var result: [VerticalTitleSegment] = []
         var latin = ""
@@ -71,7 +72,13 @@ public enum VerticalTitleParser {
             }
 
             flushLatin()
-            pendingSeparator = true
+            if preserveUnsupportedCharacters && !character.isWhitespace {
+                appendGapIfNeeded(before: .han)
+                result.append(.upright(character))
+                previousKind = .han
+            } else {
+                pendingSeparator = true
+            }
         }
         flushLatin()
         while result.last == .gap { result.removeLast() }

@@ -84,7 +84,7 @@ final class MixedTitleNSView: NSView {
             switch segment {
             case .gap:
                 break
-            case let .han(character):
+            case let .han(character), let .upright(character):
                 drawUpright(String(character), centerX: center, top: cursor, font: font, context: context, scale: scale)
             case let .latin(text):
                 drawClockwise(text, centerX: center, top: cursor, font: font, context: context, scale: scale)
@@ -109,7 +109,7 @@ final class MixedTitleNSView: NSView {
     private func advance(for segment: VerticalTitleSegment, font: NSFont, scale: CGFloat) -> Double {
         switch segment {
         case .gap: return 4
-        case .han: return Double(hanAdvance(font: font, scale: scale))
+        case .han, .upright: return Double(hanAdvance(font: font, scale: scale))
         case let .latin(text): return Double(align(lineWidth(text, font: font), scale: scale))
         }
     }
@@ -144,7 +144,7 @@ final class MixedTitleNSView: NSView {
         switch segment {
         case .gap:
             return 0
-        case let .han(character):
+        case let .han(character), let .upright(character):
             return CGFloat(CTLineGetTypographicBounds(line(String(character), font: font), nil, nil, nil))
         case let .latin(text):
             return CTLineGetBoundsWithOptions(line(text, font: font), .useGlyphPathBounds).height

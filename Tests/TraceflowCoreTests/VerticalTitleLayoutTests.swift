@@ -2,6 +2,14 @@ import XCTest
 @testable import TraceflowCore
 
 final class VerticalTitleLayoutTests: XCTestCase {
+    func testLosslessModePreservesEmojiGraphemeAndPunctuationWithoutChangingLegacy() {
+        let text = "修复👨‍👩‍👧‍👦问题！"
+        let full = VerticalTitleParser.segments(for: text, preserveUnsupportedCharacters: true)
+        XCTAssertTrue(full.contains(.upright("👨‍👩‍👧‍👦")))
+        XCTAssertTrue(full.contains(.upright("！")))
+        XCTAssertFalse(VerticalTitleParser.segments(for: text).contains(.upright("！")))
+    }
+
     func testParsesChineseAndLatinMixedTitle() {
         XCTAssertEqual(
             VerticalTitleParser.segments(for: "hello world 小米"),
@@ -51,7 +59,7 @@ final class VerticalTitleLayoutTests: XCTestCase {
     func testTruncationUsesInjectedAdvancesAndKeepsEllipsisSeparate() {
         let advance: (VerticalTitleSegment) -> Double = { segment in
             switch segment {
-            case .han: 10
+            case .han, .upright: 10
             case .gap: 4
             case let .latin(text): Double(text.count * 5)
             }

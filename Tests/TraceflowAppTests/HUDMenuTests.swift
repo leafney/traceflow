@@ -178,14 +178,14 @@ final class HUDMenuTests: XCTestCase {
         let menu = delegate.makeMenu()
         delegate.observeHUDState(panel: nil)
         let styles = try XCTUnwrap(menu.item(withTitle: "HUD 显示模式")?.submenu)
-        XCTAssertEqual(styles.items.map(\.state), [.on, .off])
-        styles.performActionForItem(at: 1)
-        try await fixture.waitUntil { styles.items[1].state == .on }
+        XCTAssertEqual(styles.items.map(\.state), [.on, .off, .off])
+        styles.performActionForItem(at: 2)
+        try await fixture.waitUntil { styles.items[2].state == .on }
         XCTAssertEqual(fixture.model.hudDisplayStyle, .compact)
         XCTAssertEqual(AppModel(defaults: fixture.defaults).hudDisplayStyle, .compact)
         fixture.model.hudDisplayStyle = .standard
         try await fixture.waitUntil { styles.items[0].state == .on }
-        XCTAssertEqual(styles.items.map(\.state), [.on, .off])
+        XCTAssertEqual(styles.items.map(\.state), [.on, .off, .off])
     }
 
     func testInitialMenuStructureAndCheckmarks() throws {

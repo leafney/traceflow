@@ -2,6 +2,21 @@ import XCTest
 import TraceflowCore
 
 final class HUDDisplayStyleGeometryTests: XCTestCase {
+    func testMediumKeepsFixedSizeAndAnchorInEveryLayout() {
+        for layout in HUDLayoutMode.allCases {
+            let reference = CGRect(x: 200, y: 300, width: layout.isHorizontal ? 420 : 40, height: layout.isHorizontal ? 40 : 420)
+            for transparency in [0, 80, 100] {
+                for icon in HUDIconVisibilityMode.allCases {
+                    let appearance = HUDBackgroundAppearance(transparency, iconVisibilityMode: icon, displayStyle: .medium)
+                    let frame = appearance.displayFrame(reference, layout: layout)
+                    XCTAssertEqual(frame.size, layout.isHorizontal ? CGSize(width: 244, height: 40) : CGSize(width: 40, height: 244))
+                    XCTAssertEqual(HUDBackgroundAppearance.referenceFrame(frame, layout: layout), reference)
+                    XCTAssertEqual(appearance.resolvedIconFraction, 0)
+                }
+            }
+        }
+    }
+
     func testCompactSizesAndReferenceRoundTripInAllLayouts() {
         for layout in HUDLayoutMode.allCases {
             let reference = CGRect(x: 200, y: 300, width: layout.isHorizontal ? 420 : 40, height: layout.isHorizontal ? 40 : 420)

@@ -2,9 +2,11 @@ import Foundation
 import CoreFoundation
 
 public enum HUDDisplayStyle: String, CaseIterable, Identifiable, Sendable {
-    case standard, compact
+    case standard, medium, compact
     public var id: String { rawValue }
-    public var menuTitle: String { self == .standard ? "标准" : "精简" }
+    public var menuTitle: String {
+        switch self { case .standard: "标准"; case .medium: "适中"; case .compact: "精简" }
+    }
 }
 
 public enum HUDRegion: String, Identifiable, Sendable {

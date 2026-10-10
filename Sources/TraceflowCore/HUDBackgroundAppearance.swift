@@ -24,11 +24,16 @@ public struct HUDBackgroundAppearance {
         case .alwaysHide: true
         }
     }
-    public var resolvedIconFraction: Double { displayStyle == .compact ? 0 : (compact ? 0 : 1) }
+    public var resolvedIconFraction: Double { displayStyle != .standard ? 0 : (compact ? 0 : 1) }
     public var backgroundAlpha: Double { 1 - Double(transparency) / 100 }
     public var materialAlpha: Double { Double(transparency) / 100 }
     public func size(_ layout: HUDLayoutMode) -> CGSize {
-        let length: CGFloat = displayStyle == .compact ? HUDMetrics.compactLongAxis : (compact ? 380 : 420)
+        let length: CGFloat
+        switch displayStyle {
+        case .standard: length = compact ? 380 : 420
+        case .medium: length = HUDMetrics.mediumLongAxis
+        case .compact: length = HUDMetrics.compactLongAxis
+        }
         return layout.isHorizontal ? CGSize(width: length, height: 40) : CGSize(width: 40, height: length)
     }
     public func displayFrame(_ reference: CGRect, layout: HUDLayoutMode) -> CGRect {

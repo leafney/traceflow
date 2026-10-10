@@ -57,7 +57,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .accessibilityLabel("图标区域")
-                .disabled(model.hudDisplayStyle == .compact)
+                .disabled(model.hudDisplayStyle != .standard)
                 Text("自动：背景透明度达到 80% 时隐藏图标区域。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -76,8 +76,8 @@ struct SettingsView: View {
                     Text("白色")
                 }
                 .disabled(model.hudDisplayStyle == .compact)
-                if model.hudDisplayStyle == .compact {
-                    Text("图标区域与标题颜色仅标准模式生效")
+                if model.hudDisplayStyle != .standard {
+                    Text("图标区域仅标准模式生效；标题颜色在标准、适中模式生效")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Button("恢复 HUD 默认位置") { model.resetHUDPosition() }

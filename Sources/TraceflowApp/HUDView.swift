@@ -65,7 +65,9 @@ struct HUDView: View {
                 case .icon:
                     if style != .standard {
                         SessionMarkerView(colorHex: presentation.displayedSession?.persisted.markerColorHex)
-                            .frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
+                            .padding(layout.lightsAtLeadingEdge ? .trailing : .leading, HUDMetrics.markerOuterInset)
+                            .frame(width: HUDMetrics.markerRegionLength, height: HUDMetrics.shortAxis,
+                                   alignment: layout.lightsAtLeadingEdge ? .trailing : .leading)
                     } else {
                         icon.opacity(model.hudIconFraction)
                             .frame(width: HUDMetrics.iconLength * model.hudIconFraction, height: HUDMetrics.shortAxis).clipped()
@@ -87,7 +89,9 @@ struct HUDView: View {
                 case .icon:
                     if style != .standard {
                         SessionMarkerView(colorHex: presentation.displayedSession?.persisted.markerColorHex)
-                            .frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
+                            .padding(layout.lightsAtLeadingEdge ? .bottom : .top, HUDMetrics.markerOuterInset)
+                            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.markerRegionLength,
+                                   alignment: layout.lightsAtLeadingEdge ? .bottom : .top)
                     } else {
                         icon.opacity(model.hudIconFraction)
                             .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()

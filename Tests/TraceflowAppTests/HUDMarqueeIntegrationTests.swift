@@ -166,7 +166,7 @@ final class HUDMarqueeIntegrationTests: XCTestCase {
         try await fixture.waitUntil { controller.window !== previous }
         XCTAssertNil(coordinator.state.activeSessionID)
         XCTAssertEqual(coordinator.state.records[id]?.phase, phase)
-        XCTAssertEqual(controller.window?.frame.size, CGSize(width: 40, height: 244))
+        XCTAssertEqual(controller.window?.frame.size, CGSize(width: 40, height: 238))
         controller.show()
         XCTAssertEqual(coordinator.state.activeSessionID, id)
         model.hudDisplayStyle = .compact

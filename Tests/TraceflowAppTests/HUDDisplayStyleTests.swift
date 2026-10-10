@@ -23,19 +23,19 @@ final class HUDDisplayStyleTests: XCTestCase {
             fixture.model.hudDisplayStyle = .medium
             try await fixture.waitUntil { controller.window !== original }
             let medium = try XCTUnwrap(controller.window)
-            XCTAssertEqual(medium.frame.size, layout.isHorizontal ? CGSize(width: 244, height: 40) : CGSize(width: 40, height: 244))
+            XCTAssertEqual(medium.frame.size, layout.isHorizontal ? CGSize(width: 238, height: 40) : CGSize(width: 40, height: 238))
             XCTAssertEqual(HUDBackgroundAppearance.referenceFrame(medium.frame, layout: layout), frame)
             fixture.model.hudDisplayStyle = .compact
             try await fixture.waitUntil { controller.window !== medium }
             let compact = try XCTUnwrap(controller.window)
-            XCTAssertEqual(compact.frame.size, layout.isHorizontal ? CGSize(width: 144, height: 40) : CGSize(width: 40, height: 144))
+            XCTAssertEqual(compact.frame.size, layout.isHorizontal ? CGSize(width: 138, height: 40) : CGSize(width: 40, height: 138))
             XCTAssertEqual(HUDBackgroundAppearance.referenceFrame(compact.frame, layout: layout), frame)
             XCTAssertFalse(original.isVisible)
             XCTAssertNil(original.contentView)
             fixture.model.previewTransparency(100)
             fixture.model.hudIconVisibilityMode = .alwaysHide
             fixture.model.isHUDPinned = true
-            XCTAssertEqual(compact.frame.size, layout.isHorizontal ? CGSize(width: 144, height: 40) : CGSize(width: 40, height: 144))
+            XCTAssertEqual(compact.frame.size, layout.isHorizontal ? CGSize(width: 138, height: 40) : CGSize(width: 40, height: 138))
             XCTAssertTrue(compact.ignoresMouseEvents)
             fixture.model.hudDisplayStyle = .standard
             try await fixture.waitUntil { controller.window !== compact }
@@ -70,21 +70,21 @@ final class HUDDisplayStyleTests: XCTestCase {
         XCTAssertNil(drag.dragFinished)
         for style in [HUDDisplayStyle.standard, .compact, .standard, .compact] { model.hudDisplayStyle = style }
         try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertEqual(controller.window?.frame.width, 144)
+        XCTAssertEqual(controller.window?.frame.width, 138)
         let placeholder = try XCTUnwrap(controller.window)
         try await fixture.hook("visible", event: .userPromptSubmit)
         try await fixture.waitUntil { controller.window !== placeholder }
-        XCTAssertEqual(controller.window?.frame.size, CGSize(width: 144, height: 40))
+        XCTAssertEqual(controller.window?.frame.size, CGSize(width: 138, height: 40))
         let active = try XCTUnwrap(controller.window)
         model.setIncluded(false, sessionID: "visible")
         try await fixture.waitUntil { controller.window !== active }
-        XCTAssertEqual(controller.window?.frame.size, CGSize(width: 144, height: 40))
+        XCTAssertEqual(controller.window?.frame.size, CGSize(width: 138, height: 40))
         controller.hide()
         model.hudDisplayStyle = .standard
         model.hudDisplayStyle = .compact
         model.isHUDPinned = true
         controller.show()
-        XCTAssertEqual(controller.window?.frame.width, 144)
+        XCTAssertEqual(controller.window?.frame.width, 138)
         XCTAssertTrue(controller.window?.ignoresMouseEvents == true)
     }
 }

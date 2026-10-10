@@ -111,8 +111,8 @@ struct HUDView: View {
                 ZStack {
                     // Snapshot the text so outgoing content never reads a new
                     // placeholder from the model during a transition.
-                    titleContent(session.sessionListTitle, vertical: vertical)
-                        .id(session.id)
+                    titleContent(session.sessionListTitle, vertical: vertical, sessionID: session.id)
+                        .id(style == .medium ? session.id + "\u{0}" + session.sessionListTitle : session.id)
                         .transition(titleTransition(vertical: vertical))
                 }
                 .transaction { $0.animation = titleAnimation }
@@ -127,9 +127,10 @@ struct HUDView: View {
     }
 
     @ViewBuilder
-    private func titleContent(_ text: String, vertical: Bool) -> some View {
+    private func titleContent(_ text: String, vertical: Bool, sessionID: String? = nil) -> some View {
         if style == .medium {
-            HUDMarqueeTitleView(title: text, vertical: vertical, color: model.hudTitleColor, reduceMotion: reduceMotion)
+            HUDMarqueeTitleView(title: text, vertical: vertical, color: model.hudTitleColor, reduceMotion: reduceMotion,
+                                sessionID: sessionID, generation: presentation.generation, coordinator: presentation.marquee)
                 .frame(width: vertical ? HUDMetrics.shortAxis : HUDMetrics.mediumTitleLength,
                        height: vertical ? HUDMetrics.mediumTitleLength : HUDMetrics.shortAxis)
         } else if vertical {

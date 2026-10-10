@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import TraceflowCore
 
@@ -8,19 +9,30 @@ struct HUDMarqueeTitleView: NSViewRepresentable {
     let color: HUDTitleColor
     var offset: CGFloat = 0
     var reduceMotion = false
+    var sessionID: String? = nil
+    var generation: UInt64? = nil
+    var coordinator: HUDMarqueeCoordinator? = nil
 
     func makeNSView(context: Context) -> HUDMarqueeNSView {
         HUDMarqueeNSView(title: title, vertical: vertical, color: color)
     }
     func updateNSView(_ view: HUDMarqueeNSView, context: Context) {
         view.configure(title: title, vertical: vertical, color: color)
-        view.offset = offset
-        view.reduceMotion = reduceMotion
+        if generation == nil {
+            view.offset = offset
+            view.reduceMotion = reduceMotion
+        }
+        view.bind(coordinator: coordinator, generation: generation, sessionID: sessionID, title: title)
     }
 }
 
 final class HUDMarqueeNSView: NSView {
     private(set) var textLayout: HUDTitleTextLayout
+    private var subscription: AnyCancellable?
+    private weak var coordinator: HUDMarqueeCoordinator?
+    private var generation: UInt64?
+    private var sessionID: String?
+    private var boundTitle: String?
     private var color: HUDTitleColor
     var offset: CGFloat = 0 { didSet { if offset != oldValue { needsDisplay = true } } }
     var reduceMotion = false { didSet { if reduceMotion != oldValue { needsDisplay = true } } }
@@ -42,9 +54,44 @@ final class HUDMarqueeNSView: NSView {
         }
         if self.color != color { self.color = color; needsDisplay = true }
     }
+    func bind(coordinator: HUDMarqueeCoordinator?, generation: UInt64?, sessionID: String?, title: String) {
+        if self.coordinator !== coordinator || self.generation != generation || self.sessionID != sessionID || boundTitle != title {
+            subscription = nil
+            self.coordinator = coordinator
+            self.generation = generation
+            self.sessionID = sessionID
+            boundTitle = title
+            if let coordinator, generation != nil {
+                subscription = coordinator.frames.sink { [weak self] frame in self?.apply(frame) }
+            }
+        }
+        if let generation {
+            coordinator?.updateBackingScale(window?.backingScaleFactor ?? 2, generation: generation, sessionID: sessionID, title: title)
+        }
+        if let frame = coordinator?.currentFrame { apply(frame) }
+    }
+
+    private func apply(_ frame: HUDMarqueeCoordinator.Frame) {
+        guard frame.generation == generation, frame.sessionID == sessionID, frame.layout.title == boundTitle else { return }
+        textLayout = frame.layout
+        offset = frame.offset
+        reduceMotion = frame.reduceMotion
+        needsDisplay = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let generation, let boundTitle {
+            coordinator?.updateBackingScale(window?.backingScaleFactor ?? 2, generation: generation, sessionID: sessionID, title: boundTitle)
+        }
+    }
+
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         configure(title: textLayout.title, vertical: textLayout.vertical, color: color)
+        if let generation, let boundTitle {
+            coordinator?.updateBackingScale(window?.backingScaleFactor ?? 2, generation: generation, sessionID: sessionID, title: boundTitle)
+        }
     }
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }

@@ -6,6 +6,7 @@ import TraceflowCore
 
 @MainActor
 final class AppModel: ObservableObject {
+    let hudMarquee = HUDMarqueeCoordinator()
     @Published private(set) var sessions: [SessionSnapshot] = []
     @Published private(set) var sessionProjects: [SessionProjectGroup] = []
     @Published private(set) var recentSessions: [SessionSnapshot] = []
@@ -637,6 +638,7 @@ final class AppModel: ObservableObject {
 
     private func publishSessions() {
         sessions = machines.values.map(\.snapshot).sorted { $0.persisted.rotationIndex < $1.persisted.rotationIndex }
+        hudMarquee.synchronizeTitles(Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.sessionListTitle) }))
         sessionProjects = SessionProjectGrouper.groups(from: sessions)
         refreshRecentSessions(now: Date())
         let validProjectKeys = Set(sessionProjects.map(\.id))

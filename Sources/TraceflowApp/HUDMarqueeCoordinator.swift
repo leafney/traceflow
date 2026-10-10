@@ -108,8 +108,9 @@ final class HUDMarqueeCoordinator {
         reconcile(now: now)
     }
 
-    func updateBackingScale(_ scale: CGFloat, generation: UInt64, sessionID: String?, title: String) {
-        guard validWindow, generation == self.generation, sessionID == self.sessionID, title == self.title,
+    func updateBackingScale(_ scale: CGFloat, generation: UInt64, contentRevision: UInt64, sessionID: String?, title: String) {
+        guard scale.isFinite, scale > 0, validWindow, generation == self.generation,
+              contentRevision == self.contentRevision, sessionID == self.sessionID, title == self.title,
               style == .medium, layout?.backingScale != scale else { return }
         let now = clock()
         freeze(now: now)

@@ -383,3 +383,13 @@ git diff --check
 最终构建通过；完整测试 305 项，0 失败，7 项实屏测试因录屏权限跳过。验收详情：[`docs/verification/2026-10-10-hud-medium-marquee.md`](../verification/2026-10-10-hud-medium-marquee.md)。
 
 窗口 generation 区分新旧窗口；另用 contentRevision 区分同一窗口中多次展示的同一会话，防止正在退场的旧 A 接收再次展示 A 的新帧。两者不改变会话滚动记录键，进度仍按会话标识保存。
+
+## 部署前审查修正
+
+用户授权修复审查中两处 P2 正确性问题，产品需求不变：
+
+- contentRevision 同时用于帧接收与屏幕缩放写入的授权；旧视图、未附着窗口视图不能重新配置当前标题，拒绝非法缩放值。
+- 适中竖排特殊字符按实际字形上边界定位基线，上下各保留一个屏幕像素；全文测量与绘制共用字形边界、基线、中心位置及 advance。
+- 新增旧回调写入隔离及完整字形与未裁剪参考图对照验证，减少动态效果与长标题首尾均覆盖。
+
+审查与修复详情：[`docs/verification/2026-10-10-hud-medium-marquee-review.md`](../verification/2026-10-10-hud-medium-marquee-review.md)。P3 跨会话布局缓存仍属后续优化。

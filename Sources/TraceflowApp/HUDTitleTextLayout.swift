@@ -9,6 +9,9 @@ final class HUDTitleTextLayout {
         let line: CTLine?
         let advance: CGFloat
         let scale: CGFloat
+        let inkBounds: CGRect
+        let baselineOffset: CGFloat
+        let centerOffset: CGFloat
     }
     let title: String
     let vertical: Bool
@@ -44,7 +47,7 @@ final class HUDTitleTextLayout {
             let text: String
             let rotated: Bool
             switch segment {
-            case .gap: return Run(segment: segment, line: nil, advance: 4, scale: 1)
+            case .gap: return Run(segment: segment, line: nil, advance: 4, scale: 1, inkBounds: .zero, baselineOffset: 0, centerOffset: 0)
             case let .han(c), let .upright(c): text = String(c); rotated = false
             case let .latin(s): text = s; rotated = true
             }
@@ -53,8 +56,15 @@ final class HUDTitleTextLayout {
             let width = CGFloat(CTLineGetTypographicBounds(ctLine, nil, nil, nil))
             let cross = rotated ? ink.height : max(width, ink.width)
             let scale = cross > HUDMetrics.shortAxis ? HUDMetrics.shortAxis / cross : 1
-            let advance = rotated ? width : max(hanAdvance, ink.height)
-            return Run(segment: segment, line: ctLine, advance: advance * scale, scale: scale)
+            let padding = 1 / backingScale
+            let baseline: CGFloat
+            switch segment {
+            case .upright: baseline = ink.maxY + padding / scale
+            default: baseline = max(font.ascender, ink.maxY + padding / scale)
+            }
+            let advance = rotated ? width * scale : max(hanAdvance * scale, (baseline - ink.minY) * scale + padding)
+            return Run(segment: segment, line: ctLine, advance: advance, scale: scale, inkBounds: ink,
+                       baselineOffset: baseline * scale, centerOffset: (rotated ? ink.midY : ink.midX) * scale)
         }
         let segments = VerticalTitleParser.segments(for: title, preserveUnsupportedCharacters: true)
         let runs = segments.map(makeRun)
@@ -100,16 +110,14 @@ final class HUDTitleTextLayout {
     }
 
     private func drawVertical(_ run: Run, line: CTLine, top: CGFloat, in context: CGContext) {
-        let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         context.saveGState()
         switch run.segment {
         case .latin:
-            context.translateBy(x: HUDMetrics.shortAxis / 2 - ink.midY * run.scale, y: top)
+            context.translateBy(x: HUDMetrics.shortAxis / 2 - run.centerOffset, y: top)
             context.scaleBy(x: run.scale, y: -run.scale)
             context.rotate(by: -.pi / 2)
         default:
-            context.translateBy(x: HUDMetrics.shortAxis / 2 - width * run.scale / 2, y: top + font.ascender * run.scale)
+            context.translateBy(x: HUDMetrics.shortAxis / 2 - run.centerOffset, y: top + run.baselineOffset)
             context.scaleBy(x: run.scale, y: -run.scale)
         }
         context.textMatrix = .identity

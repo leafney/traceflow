@@ -69,9 +69,7 @@ final class HUDMarqueeNSView: NSView {
                 subscription = coordinator.frames.sink { [weak self] frame in self?.apply(frame) }
             }
         }
-        if let generation {
-            coordinator?.updateBackingScale(window?.backingScaleFactor ?? 2, generation: generation, sessionID: sessionID, title: title)
-        }
+        updateFormalBackingScale()
         if let frame = coordinator?.currentFrame { apply(frame) }
     }
 
@@ -85,17 +83,21 @@ final class HUDMarqueeNSView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let generation, let boundTitle {
-            coordinator?.updateBackingScale(window?.backingScaleFactor ?? 2, generation: generation, sessionID: sessionID, title: boundTitle)
-        }
+        updateFormalBackingScale()
     }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        configure(title: textLayout.title, vertical: textLayout.vertical, color: color)
-        if let generation, let boundTitle {
-            coordinator?.updateBackingScale(window?.backingScaleFactor ?? 2, generation: generation, sessionID: sessionID, title: boundTitle)
-        }
+        guard window != nil else { return }
+        if generation == nil { configure(title: textLayout.title, vertical: textLayout.vertical, color: color) }
+        updateFormalBackingScale()
+    }
+
+    private func updateFormalBackingScale() {
+        // A detached/outgoing view must never configure the current presentation.
+        guard let window, let generation, let contentRevision, let boundTitle else { return }
+        coordinator?.updateBackingScale(window.backingScaleFactor, generation: generation,
+                                        contentRevision: contentRevision, sessionID: sessionID, title: boundTitle)
     }
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }

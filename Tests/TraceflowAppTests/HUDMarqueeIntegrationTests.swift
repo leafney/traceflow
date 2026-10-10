@@ -86,6 +86,50 @@ final class HUDMarqueeIntegrationTests: XCTestCase {
         XCTAssertEqual(newA.offset, -60, accuracy: 0.001)
     }
 
+    func testOnlyCurrentAttachedPresentationMayUpdateBackingScale() async throws {
+        let fixture = try await fixture()
+        defer { fixture.cleanUp() }
+        var now = 0.0
+        let coordinator = HUDMarqueeCoordinator(clock: { now }, automaticTicks: false, observeSystem: false)
+        let a = try fixture.session("a"), b = try fixture.session("b")
+        let token = coordinator.beginWindow(layout: .verticalTop, style: .medium, session: a)
+        let oldRevision = coordinator.contentRevision
+        let old = HUDMarqueeNSView(title: a.sessionListTitle, vertical: true, color: .black)
+        old.bind(coordinator: coordinator, generation: token, sessionID: a.id, title: a.sessionListTitle,
+                 contentRevision: oldRevision)
+        coordinator.setVisible(true, generation: token)
+        now = 2
+        coordinator.update(session: b, generation: token)
+        now = 3
+        coordinator.update(session: a, generation: token)
+        let revision = coordinator.contentRevision
+        coordinator.updateBackingScale(1, generation: token, contentRevision: revision, sessionID: a.id, title: a.sessionListTitle)
+        let record = coordinator.state.records[a.id]
+        let layout = coordinator.currentFrame!.layout
+        now = 4
+        // The old view still has the same window token, ID and title, but is an earlier display of A.
+        coordinator.updateBackingScale(2, generation: token, contentRevision: oldRevision, sessionID: a.id, title: a.sessionListTitle)
+        old.viewDidMoveToWindow()
+        old.viewDidChangeBackingProperties()
+        let detachedCurrent = HUDMarqueeNSView(title: a.sessionListTitle, vertical: true, color: .black)
+        detachedCurrent.bind(coordinator: coordinator, generation: token, sessionID: a.id, title: a.sessionListTitle,
+                             contentRevision: revision)
+        detachedCurrent.viewDidMoveToWindow()
+        detachedCurrent.viewDidChangeBackingProperties()
+        for invalid in [CGFloat.nan, .infinity, 0, -1] {
+            coordinator.updateBackingScale(invalid, generation: token, contentRevision: revision,
+                                           sessionID: a.id, title: a.sessionListTitle)
+        }
+        XCTAssertTrue(coordinator.currentFrame!.layout === layout)
+        XCTAssertEqual(coordinator.currentFrame?.layout.backingScale, 1)
+        XCTAssertEqual(coordinator.state.records[a.id], record, "旧回调及非法缩放不能修改进度或活动时钟")
+        let phase = coordinator.state.sample(a.id, now: now).phase
+        coordinator.updateBackingScale(2, generation: token, contentRevision: revision, sessionID: a.id, title: a.sessionListTitle)
+        XCTAssertEqual(coordinator.currentFrame?.layout.backingScale, 2)
+        XCTAssertEqual(coordinator.state.sample(a.id, now: now).phase, phase, accuracy: 0.00001)
+        XCTAssertEqual(coordinator.state.activeSessionID, a.id)
+    }
+
     func testReleasingVisibleControllerStopsApplicationOwnedClock() async throws {
         let fixture = try await fixture()
         defer { fixture.cleanUp() }

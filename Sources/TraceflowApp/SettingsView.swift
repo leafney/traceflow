@@ -110,7 +110,7 @@ struct SettingsView: View {
                 }
             } header: {
                 HStack {
-                    Text("置顶区")
+                    Text("活跃区")
                     Spacer(minLength: 8)
                     Toggle("自动启用新会话", isOn: $model.autoEnableNewSessions)
                         .toggleStyle(.switch)

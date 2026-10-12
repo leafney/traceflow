@@ -2,6 +2,7 @@
 set -eu
 
 repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+. "$repo_root/scripts/launch-app.sh"
 source_app="$repo_root/dist/Traceflow.app"
 install_dir="${TRACEFLOW_INSTALL_DIR:-/Applications}"
 destination="$install_dir/Traceflow.app"
@@ -63,7 +64,7 @@ if [ -d "$destination" ]; then
             /usr/bin/printf '%s\n' '无法检查旧版进程，安装已取消。' >&2
             exit 1
         fi
-        running_pids="$(/usr/bin/printf '%s\n' "$process_list" | /usr/bin/awk -v executable="$destination/Contents/MacOS/Traceflow" '$2 == executable { print $1 }')"
+        running_pids="$(/usr/bin/printf '%s\n' "$process_list" | /usr/bin/awk -v executable="$destination/Contents/MacOS/Traceflow" '{ pid = $1; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, ""); if ($0 == executable) print pid }')"
     fi
     if [ -n "$running_pids" ]; then
         /usr/bin/printf '%s\n' '正在退出旧版 Traceflow…'
@@ -96,7 +97,7 @@ trap - EXIT HUP INT TERM
 
 if [ "${TRACEFLOW_SKIP_LAUNCH:-0}" != 1 ]; then
     "$lsregister" -f "$destination"
-    /usr/bin/open "$destination"
+    traceflow_launch_app "$destination"
 fi
 /usr/bin/printf '安装完成：%s\n' "$destination"
 /usr/bin/printf '%s\n' '以后可从“应用程序”或 Spotlight 搜索 Traceflow 再次打开；运行时只有菜单栏图标，不显示 Dock 图标。'

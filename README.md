@@ -31,7 +31,7 @@ open dist/Traceflow.app
 scripts/install-app.sh
 ```
 
-脚本会构建并安装到 `/Applications/Traceflow.app`，必要时请求管理员密码。安装完成后只打开一次，不设置开机自动启动。Traceflow 是仅菜单栏应用，运行时不显示 Dock 图标；退出后可在 Finder 的“应用程序”中双击 Traceflow，或通过 Spotlight 搜索 `Traceflow` 重新打开。也可在终端执行 `open /Applications/Traceflow.app`。
+脚本会构建并安装到 `/Applications/Traceflow.app`，必要时请求管理员密码。安装完成后自动启动，不设置开机自动启动。若系统仍保留已退出的旧进程记录，导致启动返回 `-600 / procNotFound`，脚本会间隔半秒重试，最多尝试三次；启动后还会确认对应进程持续存活。其他启动错误、进程立即退出或等待超时会明确报错，已安装的应用保留。Traceflow 是仅菜单栏应用，运行时不显示 Dock 图标；退出后可在 Finder 的“应用程序”中双击 Traceflow，或通过 Spotlight 搜索 `Traceflow` 重新打开。也可在终端执行 `open /Applications/Traceflow.app`。
 
 重复运行脚本会更新 App 包；已有 Hooks、设置、会话和日志不会被删除。应用程序本体位于 `/Applications`，转发器和运行数据仍保存在用户目录。
 

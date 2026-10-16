@@ -2,7 +2,13 @@ import CoreGraphics
 import Foundation
 
 public enum HUDMetrics {
-    public static let compactLongAxis: CGFloat = 144
+    public static let mediumTitleLength: CGFloat = 100
+    public static let titleInset: CGFloat = 6
+    public static let mediumTextLength: CGFloat = mediumTitleLength - 2 * titleInset
+    public static let markerRegionLength: CGFloat = 34
+    public static let markerOuterInset: CGFloat = (iconLength - markerDiameter) / 2
+    public static let mediumLongAxis: CGFloat = markerRegionLength + mediumTitleLength + lightAreaLength
+    public static let compactLongAxis: CGFloat = markerRegionLength + lightAreaLength
     public static let markerDiameter: CGFloat = 14
     public static let longAxis: CGFloat = 420
     public static let shortAxis: CGFloat = 40

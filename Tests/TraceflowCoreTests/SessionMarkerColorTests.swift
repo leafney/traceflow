@@ -2,6 +2,50 @@ import XCTest
 @testable import TraceflowCore
 
 final class SessionMarkerColorTests: XCTestCase {
+    func testHistoryBoundaryFallbackAndActivityPrecedence() throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let cases: [(TimeInterval?, TimeInterval, Bool)] = [
+            (-604799, 0, false), (-604800, 0, false), (-604801, 0, true),
+            (-60, -900000, false), (nil, -604801, true), (nil, -604800, false), (60, 0, false)
+        ]
+        for (activity, updated, historical) in cases {
+            let record = PersistedSession(sessionID: "boundary", markerColorHex: "#123456",
+                discoveredAt: now, lastUpdatedAt: now.addingTimeInterval(updated),
+                lastActivityAt: activity.map { now.addingTimeInterval($0) }, rotationIndex: 0)
+            XCTAssertEqual(SessionMarkerColor.isHistorical(record, now: now), historical)
+            var expected = record
+            if historical { expected.markerColorHex = nil }
+            XCTAssertEqual(try SessionMarkerColor.fillingMissing(in: [record], now: now), [expected])
+        }
+    }
+
+    func testHistoricalColorsDoNotAffectRecentAllocationAndPreserveOrder() throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let old = now.addingTimeInterval(-604801)
+        var history = ["#477EE8", "#123456", nil, "invalid"].enumerated().map { index, color in
+            PersistedSession(sessionID: "old-\(index)", markerColorHex: color,
+                discoveredAt: old, lastUpdatedAt: old, rotationIndex: index)
+        }
+        history[3].markerColorHex = "invalid"
+        let recent = (0..<4).map { index in
+            PersistedSession(sessionID: "recent-\(index)", markerColorHex: index == 0 ? "#808080" : nil,
+                discoveredAt: old, lastUpdatedAt: now, rotationIndex: index)
+        }
+        let input = history + recent
+        let result = try SessionMarkerColor.fillingMissing(in: input, now: now)
+        XCTAssertEqual(result.map(\.id), input.map(\.id))
+        XCTAssertTrue(result.prefix(history.count).allSatisfy { $0.markerColorHex == nil })
+        XCTAssertEqual(Array(result.suffix(recent.count)), try SessionMarkerColor.fillingMissing(in: recent, now: now))
+        XCTAssertEqual(try SessionMarkerColor.fillingMissing(in: result, now: now), result)
+        XCTAssertEqual(try SessionMarkerColor.fillingMissing(in: input.reversed(), now: now), result.reversed())
+        for (original, assigned) in zip(input, result) {
+            var expected = original
+            expected.markerColorHex = assigned.markerColorHex
+            XCTAssertEqual(assigned, expected)
+        }
+        XCTAssertTrue(try SessionMarkerColor.fillingMissing(in: history, now: now).allSatisfy { $0.markerColorHex == nil })
+    }
+
     func testNormalizationAndBoundedFallback() throws {
         XCTAssertEqual(SessionMarkerColor.normalized(" #aB12ef\n"), "#AB12EF")
         for invalid in ["red", "#fff", "#12345678", "#GG0000"] { XCTAssertNil(SessionMarkerColor.normalized(invalid)) }
@@ -18,12 +62,12 @@ final class SessionMarkerColorTests: XCTestCase {
             PersistedSession(sessionID: "s\(index)", markerColorHex: index < 2 ? "#123456" : nil,
                              discoveredAt: date, lastUpdatedAt: date, rotationIndex: index)
         }
-        let assigned = try SessionMarkerColor.fillingMissing(in: records.reversed())
+        let assigned = try SessionMarkerColor.fillingMissing(in: records.reversed(), now: date)
         XCTAssertEqual(assigned.filter { $0.markerColorHex == "#123456" }.count, 2)
         XCTAssertEqual(Set(assigned.compactMap(\.markerColorHex)).count, 11)
         XCTAssertFalse(assigned.contains { $0.markerColorHex == SessionMarkerColor.placeholder })
-        XCTAssertEqual(try SessionMarkerColor.fillingMissing(in: assigned), assigned)
-        let normalOrder = try SessionMarkerColor.fillingMissing(in: records)
+        XCTAssertEqual(try SessionMarkerColor.fillingMissing(in: assigned, now: date), assigned)
+        let normalOrder = try SessionMarkerColor.fillingMissing(in: records, now: date)
         XCTAssertEqual(Dictionary(uniqueKeysWithValues: assigned.map { ($0.id, $0.markerColorHex) }),
                        Dictionary(uniqueKeysWithValues: normalOrder.map { ($0.id, $0.markerColorHex) }))
         for record in assigned { XCTAssertEqual(record.lastUpdatedAt, date) }
@@ -76,7 +120,7 @@ final class SessionMarkerColorTests: XCTestCase {
                     occupied.insert(color)
                 }
             }
-            XCTAssertEqual(try SessionMarkerColor.fillingMissing(in: records), expected)
+            XCTAssertEqual(try SessionMarkerColor.fillingMissing(in: records, now: date), expected)
         }
     }
 

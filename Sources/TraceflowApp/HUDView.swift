@@ -35,12 +35,24 @@ struct HUDView: View {
             case .verticalTop, .verticalBottom: verticalContent
             }
         }
-        .frame(width: layout.isHorizontal ? (style == .compact ? HUDMetrics.compactLongAxis : 380 + 40 * model.hudIconFraction) : HUDMetrics.shortAxis,
-               height: layout.isHorizontal ? HUDMetrics.shortAxis : (style == .compact ? HUDMetrics.compactLongAxis : 380 + 40 * model.hudIconFraction))
+        .frame(width: layout.isHorizontal ? longAxisLength : HUDMetrics.shortAxis,
+               height: layout.isHorizontal ? HUDMetrics.shortAxis : longAxisLength)
         .overlay(Capsule().stroke(.white.opacity((colorScheme == .dark ? 0.16 : 0.24) * HUDBackgroundAppearance(model.hudBackgroundTransparency).backgroundAlpha), lineWidth: 0.5))
         .contentShape(Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
+    }
+
+    private var longAxisLength: CGFloat {
+        switch style {
+        case .standard: 380 + 40 * model.hudIconFraction
+        case .medium: HUDMetrics.mediumLongAxis
+        case .compact: HUDMetrics.compactLongAxis
+        }
+    }
+
+    private var titleRegionLength: CGFloat {
+        style == .medium ? HUDMetrics.mediumTitleLength : HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2
     }
 
     private var horizontalContent: some View {
@@ -51,15 +63,17 @@ struct HUDView: View {
                     HStack(spacing: HUDMetrics.lightSpacing) { lights }
                         .frame(width: HUDMetrics.lightAreaLength, height: HUDMetrics.shortAxis)
                 case .icon:
-                    if style == .compact {
+                    if style != .standard {
                         SessionMarkerView(colorHex: presentation.displayedSession?.persisted.markerColorHex)
-                            .frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
+                            .padding(layout.lightsAtLeadingEdge ? .trailing : .leading, HUDMetrics.markerOuterInset)
+                            .frame(width: HUDMetrics.markerRegionLength, height: HUDMetrics.shortAxis,
+                                   alignment: layout.lightsAtLeadingEdge ? .trailing : .leading)
                     } else {
                         icon.opacity(model.hudIconFraction)
                             .frame(width: HUDMetrics.iconLength * model.hudIconFraction, height: HUDMetrics.shortAxis).clipped()
                     }
                 case .title:
-                    if style == .standard { titleRegion(vertical: false) }
+                    if style != .compact { titleRegion(vertical: false) }
                 }
             }
         }
@@ -73,15 +87,17 @@ struct HUDView: View {
                     VStack(spacing: HUDMetrics.lightSpacing) { lights }
                         .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.lightAreaLength)
                 case .icon:
-                    if style == .compact {
+                    if style != .standard {
                         SessionMarkerView(colorHex: presentation.displayedSession?.persisted.markerColorHex)
-                            .frame(width: HUDMetrics.iconLength, height: HUDMetrics.shortAxis)
+                            .padding(layout.lightsAtLeadingEdge ? .bottom : .top, HUDMetrics.markerOuterInset)
+                            .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.markerRegionLength,
+                                   alignment: layout.lightsAtLeadingEdge ? .bottom : .top)
                     } else {
                         icon.opacity(model.hudIconFraction)
                             .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.iconLength * model.hudIconFraction).clipped()
                     }
                 case .title:
-                    if style == .standard { titleRegion(vertical: true) }
+                    if style != .compact { titleRegion(vertical: true) }
                 }
             }
         }
@@ -99,8 +115,8 @@ struct HUDView: View {
                 ZStack {
                     // Snapshot the text so outgoing content never reads a new
                     // placeholder from the model during a transition.
-                    titleContent(session.sessionListTitle, vertical: vertical)
-                        .id(session.id)
+                    titleContent(session.sessionListTitle, vertical: vertical, sessionID: session.id)
+                        .id(style == .medium ? session.id + "\u{0}" + session.sessionListTitle + String(presentation.marquee.contentRevision) : session.id)
                         .transition(titleTransition(vertical: vertical))
                 }
                 .transaction { $0.animation = titleAnimation }
@@ -109,23 +125,28 @@ struct HUDView: View {
                 titleContent("Traceflow", vertical: vertical)
             }
         }
-        .frame(width: vertical ? HUDMetrics.shortAxis : HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2,
-               height: vertical ? HUDMetrics.titleLength + HUDMetrics.separatorThickness * 2 : HUDMetrics.shortAxis)
+        .frame(width: vertical ? HUDMetrics.shortAxis : titleRegionLength,
+               height: vertical ? titleRegionLength : HUDMetrics.shortAxis)
         .clipped()
     }
 
     @ViewBuilder
-    private func titleContent(_ text: String, vertical: Bool) -> some View {
-        if vertical {
+    private func titleContent(_ text: String, vertical: Bool, sessionID: String? = nil) -> some View {
+        if style == .medium {
+            HUDMarqueeTitleView(title: text, vertical: vertical, color: model.hudTitleColor, reduceMotion: reduceMotion,
+                                sessionID: sessionID, generation: presentation.generation, contentRevision: presentation.marquee.contentRevision, coordinator: presentation.marquee)
+                .frame(width: vertical ? HUDMetrics.shortAxis : HUDMetrics.mediumTitleLength,
+                       height: vertical ? HUDMetrics.mediumTitleLength : HUDMetrics.shortAxis)
+        } else if vertical {
             VerticalMixedTitleView(title: text, color: model.hudTitleColor)
-                .frame(width: HUDMetrics.shortAxis, height: HUDMetrics.titleLength)
+                .frame(width: HUDMetrics.shortAxis, height: style == .medium ? HUDMetrics.mediumTitleLength : HUDMetrics.titleLength)
         } else {
             Text(text)
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(model.hudTitleColor == .white ? Color.white : Color.black)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(width: HUDMetrics.titleTextLength, alignment: .leading)
+                .frame(width: style == .medium ? HUDMetrics.mediumTextLength : HUDMetrics.titleTextLength, alignment: .leading)
         }
     }
 

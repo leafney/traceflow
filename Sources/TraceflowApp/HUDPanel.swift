@@ -161,13 +161,18 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
     }
 
     required init?(coder: NSCoder) { nil }
-    deinit { transitionDisplayLink?.invalidate() }
+    deinit {
+        transitionDisplayLink?.invalidate()
+        MainActor.assumeIsolated { hostingView.rootView.presentation.retire() }
+    }
     func show() {
         let placement = synchronizePresentation()
         if placement != .preserveCurrentGeometry { restorePosition() }
         window?.orderFrontRegardless()
+        hostingView.rootView.presentation.setVisible(true)
     }
     func hide() {
+        hostingView.rootView.presentation.setVisible(false)
         window?.orderOut(nil)
         cancelInteraction()
         restorePosition()
@@ -287,6 +292,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         }
         cancelInteraction()
         model.hudIconFraction = nextGeometry.appearance.resolvedIconFraction
+        hostingView.rootView.presentation.retire()
         let replacement = Self.makePanelAssembly(model: model, layout: targetLayout, mode: mode, style: nextGeometry.displayStyle,
                                                  size: frame.size, transparency: transparency,
                                                  ignoresMouseEvents: nextGeometry.interaction.ignoresMouseEvents)
@@ -314,6 +320,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
         previous.contentView = nil
         previous.close()
         if wasVisible { replacement.panel.orderFrontRegardless() }
+        hostingView.rootView.presentation.setVisible(wasVisible)
         if placement == .restoreLayoutPosition, isTemporaryPosition {
             positionRetryDeadline = Date().addingTimeInterval(HUDPositionRetryPolicy.duration)
             schedulePositionRetry()
@@ -528,7 +535,7 @@ final class HUDPanelController: NSWindowController, NSWindowDelegate {
 
     private static func makeHostingView(model: AppModel, layout: HUDLayoutMode, mode: HUDWindowDisplayMode, style: HUDDisplayStyle, frame: NSRect) -> NSHostingView<HUDView> {
         let hosting = NSHostingView(rootView: HUDView(model: model, layout: layout, style: style,
-                                                      presentation: HUDWindowPresentation(model: model, mode: mode)))
+                                                      presentation: HUDWindowPresentation(model: model, mode: mode, layout: layout, style: style)))
         hosting.frame = frame
         hosting.autoresizingMask = [.width, .height]
         return hosting

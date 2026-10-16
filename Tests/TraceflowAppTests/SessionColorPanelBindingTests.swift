@@ -64,7 +64,7 @@ final class SessionColorPanelBindingTests: XCTestCase {
         XCTAssertNil(controller.sessionID)
         XCTAssertFalse(panel.isVisible)
         XCTAssertEqual(try fixture.session("a").persisted.markerColorHex, color)
-        XCTAssertEqual(fixture.model.markerColorErrorMessage, "颜色保存失败，未更改会话颜色")
+        XCTAssertEqual(fixture.model.markerColorErrorMessage, "会话数据保存失败，请重试保存")
     }
 
     func testClosingSettingsEndsColorBinding() async throws {

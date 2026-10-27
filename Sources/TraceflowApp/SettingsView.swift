@@ -105,8 +105,10 @@ struct SettingsView: View {
                 if let message = model.recentDiscoveryMessage {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
-                ForEach(model.recentSessions) { session in
-                    recentSessionRow(session)
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(model.recentSessions) { session in
+                        recentSessionRow(session)
+                    }
                 }
             } header: {
                 HStack {
@@ -132,12 +134,14 @@ struct SettingsView: View {
                 }
                 if let message = model.sessionSyncMessage { Text(message).font(.caption).foregroundStyle(.secondary) }
                 if model.sessionProjects.isEmpty { Text("尚未发现会话").foregroundStyle(.secondary) }
-                ForEach(model.sessionProjects) { project in
-                    projectHeader(project)
-                    if model.expandedProjectKeys.contains(project.id) {
-                        ForEach(project.sessions) { session in
-                            sessionRow(session)
-                                .padding(.leading, 24)
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(model.sessionProjects) { project in
+                        projectHeader(project)
+                        if model.expandedProjectKeys.contains(project.id) {
+                            ForEach(project.sessions) { session in
+                                sessionRow(session)
+                                    .padding(.leading, 24)
+                            }
                         }
                     }
                 }

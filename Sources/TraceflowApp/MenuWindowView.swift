@@ -269,7 +269,8 @@ struct MenuWindowView: View {
 
     private func colorPicker(_ session: SessionSnapshot) -> some View {
         HStack(spacing: 8) {
-            ForEach(["#6C7FE8", "#E4A665", "#67B7A0", "#E16F7F", "#AC80CF", "#8192A5"], id: \.self) { color in
+            ForEach(SessionColorOptions.options(sessionID: session.id, currentColor: session.persisted.markerColorHex), id: \.hex) { option in
+                let color = option.hex
                 Button {
                     model.markerColorErrorMessage = nil
                     model.requestMarkerColor(color, sessionID: session.id) { result in
@@ -279,8 +280,9 @@ struct MenuWindowView: View {
                     colorSession = nil
                 } label: {
                     Circle().fill(Color(nsColor: SessionMarkerView.nsColor(color))).frame(width: 19, height: 19)
-                        .overlay { if session.persisted.markerColorHex == color { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white) } }
+                        .overlay { if option.isSelected { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white) } }
                 }.buttonStyle(.plain).accessibilityLabel("选择颜色 \(color)")
+                    .accessibilityValue(option.isSelected ? "已选择" : "未选择")
             }
             Button("自定义") { colorSession = nil; controller.openColorPanel(sessionID: session.id) }
         }.padding(12)

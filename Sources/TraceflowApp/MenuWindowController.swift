@@ -29,7 +29,7 @@ final class MenuWindowController {
     func show() {
         guard let button = statusItem?.button, let buttonWindow = button.window else { return }
         if panel == nil {
-            let window = MenuPanel(contentRect: NSRect(x: 0, y: 0, width: 410, height: 400),
+            let window = MenuPanel(contentRect: NSRect(x: 0, y: 0, width: 410, height: 440),
                                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             window.isFloatingPanel = true
             window.level = .popUpMenu
@@ -77,38 +77,3 @@ final class MenuWindowController {
     }
 }
 
-struct MenuWindowView: View {
-    @ObservedObject var model: AppModel
-    unowned let controller: MenuWindowController
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("◈").font(.title2)
-                Text("Traceflow").font(.headline)
-                Spacer()
-                Button { controller.closeImmediately(); model.openSettingsWindow() } label: { Image(systemName: "gearshape") }
-                    .buttonStyle(.plain).help("设置")
-            }.padding(18)
-            VStack(spacing: 8) {
-                HStack {
-                    Toggle("显示 HUD", isOn: $model.isHUDVisible)
-                    Toggle("钉住 HUD", isOn: $model.isHUDPinned)
-                }
-                HStack {
-                    Picker("HUD 布局", selection: $model.hudLayoutMode) {
-                        ForEach(HUDLayoutMode.allCases) { Text($0.menuTitle).tag($0) }
-                    }
-                    Picker("HUD 显示模式", selection: $model.hudDisplayStyle) {
-                        ForEach(HUDDisplayStyle.allCases) { Text($0.menuTitle).tag($0) }
-                    }
-                }
-                Spacer()
-            }.padding(.horizontal, 16)
-            Divider()
-            HStack { Spacer(); Button("退出 Traceflow") { NSApplication.shared.terminate(nil) }.buttonStyle(.plain) }.padding(16)
-        }
-        .frame(width: 410, height: 400)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-    }
-}

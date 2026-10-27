@@ -86,4 +86,30 @@ final class MenuEditingCoordinatorTests: XCTestCase {
         XCTAssertEqual(try fixture.session("menu-editor").persisted.customTitle, "失焦后保存")
     }
 
+    func testClickOutsideSchedulesSaveAndLeavesEditing() async throws {
+        _ = NSApplication.shared
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.hook("menu-editor", event: .sessionStart)
+        let coordinator = MenuEditingCoordinator(model: fixture.model)
+        coordinator.begin(try fixture.session("menu-editor"))
+        coordinator.editing?.draft = "点击外部保存"
+        coordinator.scheduleBlurSave()
+        try await fixture.waitUntil { coordinator.editing == nil }
+        XCTAssertEqual(try fixture.session("menu-editor").persisted.customTitle, "点击外部保存")
+    }
+
+    func testRestoreWithoutCustomTitleDiscardsDraft() async throws {
+        _ = NSApplication.shared
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.hook("menu-editor", event: .sessionStart)
+        let coordinator = MenuEditingCoordinator(model: fixture.model)
+        coordinator.begin(try fixture.session("menu-editor"))
+        coordinator.editing?.draft = "尚未保存"
+        coordinator.restore()
+        XCTAssertNil(coordinator.editing)
+        XCTAssertNil(try fixture.session("menu-editor").persisted.customTitle)
+    }
+
 }

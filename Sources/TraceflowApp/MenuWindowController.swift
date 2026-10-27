@@ -16,9 +16,12 @@ final class MenuWindowController {
     private var globalMonitor: Any?
     var requestClose: (() -> Void)?
     var didClose: (() -> Void)?
+    var editingArea: CGRect?
+    var clickedOutsideEditor: (() -> Void)?
     var isColorPopoverVisible = false
     private var ownedColorGeneration: Int?
     var isVisible: Bool { panel?.isVisible == true }
+    var contentHeight: CGFloat { panel?.contentView?.bounds.height ?? 0 }
 
     init(model: AppModel, statusItem: NSStatusItem) {
         self.model = model
@@ -55,11 +58,21 @@ final class MenuWindowController {
         panel.setFrameOrigin(NSPoint(x: x, y: y))
         model.setMenuWindowVisible(true)
         panel.makeKeyAndOrderFront(nil)
+        updateHeight(sessionCount: model.recentSessions.count)
         installMonitors()
     }
 
     func requestDismiss() {
         if let requestClose { requestClose() } else { closeImmediately() }
+    }
+
+    func updateHeight(sessionCount: Int) {
+        guard let panel, panel.isVisible else { return }
+        let maximum = panel.screen.map { max(1, panel.frame.maxY - $0.visibleFrame.minY) } ?? 440
+        let height = min(maximum, min(440, 262 + CGFloat(max(1, sessionCount)) * 65))
+        guard abs(panel.frame.height - height) > 0.5 else { return }
+        let top = panel.frame.maxY
+        panel.setFrame(NSRect(x: panel.frame.minX, y: top - height, width: panel.frame.width, height: height), display: true)
     }
 
     func openColorPanel(sessionID: String) {
@@ -86,10 +99,18 @@ final class MenuWindowController {
         if let globalMonitor { NSEvent.removeMonitor(globalMonitor); self.globalMonitor = nil }
     }
 
+    func handlePanelClick(at point: CGPoint) {
+        if let area = editingArea, !area.contains(point) { clickedOutsideEditor?() }
+    }
+
     private func installMonitors() {
         guard localMonitor == nil else { return }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self, self.isVisible, event.window !== self.panel else { return event }
+            guard let self, self.isVisible else { return event }
+            if event.window === self.panel {
+                self.handlePanelClick(at: event.locationInWindow)
+                return event
+            }
             if event.window === NSColorPanel.shared || event.window === self.statusItem?.button?.window { return event }
             if self.isColorPopoverVisible, event.window?.parent === self.panel { return event }
             self.requestDismiss()

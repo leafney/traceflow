@@ -23,4 +23,23 @@ final class MenuWindowControllerTests: XCTestCase {
         controller.requestDismiss()
         XCTAssertFalse(controller.isVisible)
     }
+    func testPanelClickOutsideEditorRequestsSave() throws {
+        _ = NSApplication.shared
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        let controller = MenuWindowController(model: fixture.model, statusItem: item)
+        controller.editingArea = CGRect(x: 10, y: 20, width: 200, height: 30)
+        var requests = 0
+        controller.clickedOutsideEditor = { requests += 1 }
+        controller.handlePanelClick(at: CGPoint(x: 30, y: 30))
+        XCTAssertEqual(requests, 0)
+        controller.handlePanelClick(at: CGPoint(x: 30, y: 80))
+        XCTAssertEqual(requests, 1)
+        controller.editingArea = nil
+        controller.handlePanelClick(at: CGPoint(x: 30, y: 80))
+        XCTAssertEqual(requests, 1)
+    }
+
 }

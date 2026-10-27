@@ -60,7 +60,8 @@ final class MenuEditingCoordinator: ObservableObject {
 
     func restore() {
         blurTask?.cancel()
-        guard let editing, !saving else { return }
+        guard let editing, !saving, editing.unavailableMessage == nil else { return }
+        if editing.session?.persisted.customTitle == nil { cancel(); return }
         saving = true
         Task {
             let success = await editing.restore()
@@ -112,17 +113,17 @@ struct MenuWindowView: View {
                     checkButton("钉住 HUD", value: $model.isHUDPinned)
                 }
                 HStack(spacing: 8) {
-                    Picker("HUD 布局", selection: Binding(get: { model.hudLayoutMode }, set: { value in
-                        coordinator.performAfterSaving { model.hudLayoutMode = value }
-                    })) {
-                        ForEach(HUDLayoutMode.allCases) { Text($0.menuTitle).tag($0) }
+                    selectionMenu("HUD 布局", value: model.hudLayoutMode.menuTitle) {
+                        ForEach(HUDLayoutMode.allCases) { item in
+                            Button(item.menuTitle) { coordinator.performAfterSaving { model.hudLayoutMode = item } }
+                        }
                     }
-                    Picker("HUD 显示模式", selection: Binding(get: { model.hudDisplayStyle }, set: { value in
-                        coordinator.performAfterSaving { model.hudDisplayStyle = value }
-                    })) {
-                        ForEach(HUDDisplayStyle.allCases) { Text($0.menuTitle).tag($0) }
+                    selectionMenu("HUD 显示模式", value: model.hudDisplayStyle.menuTitle) {
+                        ForEach(HUDDisplayStyle.allCases) { item in
+                            Button(item.menuTitle) { coordinator.performAfterSaving { model.hudDisplayStyle = item } }
+                        }
                     }
-                }.pickerStyle(.menu)
+                }
                 if !model.sessionDataHealth.allowsSaving {
                     HStack {
                         Text("会话数据暂时无法保存，请在设置中修复").font(.caption).foregroundStyle(.red)
@@ -135,6 +136,7 @@ struct MenuWindowView: View {
                     Text("· 最近 10 分钟").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Text("\(model.recentSessions.count) 个会话").font(.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, 8).padding(.vertical, 4).background(Color.primary.opacity(0.06), in: Capsule())
                 }.padding(.top, 10)
                 ScrollView {
                     VStack(spacing: 0) {
@@ -149,17 +151,27 @@ struct MenuWindowView: View {
                         if let message = model.recentDiscoveryMessage { Text(message).font(.caption).foregroundStyle(.secondary).padding(8) }
                         if let message = model.markerColorErrorMessage { Text(message).font(.caption).foregroundStyle(.red).padding(8) }
                     }.frame(maxWidth: .infinity)
-                }.background(.background, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .frame(maxHeight: min(200, CGFloat(max(1, sessions.count)) * 66 + (model.recentDiscoveryMessage == nil ? 0 : 30)))
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.08)))
+                Spacer(minLength: 0)
             }.padding(.horizontal, 16).padding(.bottom, 12)
             Divider()
             HStack { Spacer(); Button("退出 Traceflow") { coordinator.performAfterSaving { NSApplication.shared.terminate(nil) } }.buttonStyle(.plain).keyboardShortcut("q", modifiers: .command) }
                 .padding(.horizontal, 18).padding(.vertical, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
+        .coordinateSpace(name: "menu")
+        .onPreferenceChange(EditorFrameKey.self) { rect in
+            controller.editingArea = rect.map { CGRect(x: $0.minX, y: controller.contentHeight - $0.maxY, width: $0.width, height: $0.height) }
+        }
         .onAppear {
             controller.requestClose = { coordinator.performAfterSaving { controller.closeImmediately() } }
-            controller.didClose = { colorSession = nil }
+            controller.didClose = { colorSession = nil; controller.editingArea = nil }
+            controller.clickedOutsideEditor = { coordinator.scheduleBlurSave() }
+            controller.updateHeight(sessionCount: sessions.count)
         }
         .onExitCommand {
             if coordinator.editing != nil { coordinator.cancel() } else { controller.requestDismiss() }
@@ -169,17 +181,33 @@ struct MenuWindowView: View {
             controller.restoreEditingFocus()
             focusedTitle = true
         }
+        .onChange(of: sessions.count) { _, count in controller.updateHeight(sessionCount: count) }
         .onChange(of: colorSession) { _, id in controller.isColorPopoverVisible = id != nil }
         .onChange(of: focusedTitle) { _, focused in
             if !focused, coordinator.editing != nil { coordinator.scheduleBlurSave() }
         }
     }
 
+    private func selectionMenu<Content: View>(_ title: String, value: String, @ViewBuilder content: () -> Content) -> some View {
+        Menu(content: content) {
+            HStack(spacing: 3) {
+                Text(title).lineLimit(1)
+                Spacer(minLength: 2)
+                Text(value).foregroundStyle(.secondary).lineLimit(1)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+            }.font(.system(size: 12)).padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 38)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.10)))
+        }.menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
+    }
+
     private func checkButton(_ title: String, value: Binding<Bool>) -> some View {
         Button { coordinator.performAfterSaving { value.wrappedValue.toggle() } } label: {
             HStack { Text(title); Spacer(); if value.wrappedValue { Image(systemName: "checkmark") } }
-                .padding(10).frame(maxWidth: .infinity)
-                .background(value.wrappedValue ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 9))
+                .padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 38)
+                .foregroundStyle(value.wrappedValue ? Color.accentColor : Color.primary)
+                .background(value.wrappedValue ? Color.accentColor.opacity(0.10) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(value.wrappedValue ? Color.accentColor.opacity(0.20) : Color.primary.opacity(0.10)))
         }.buttonStyle(.plain).accessibilityValue(value.wrappedValue ? "已开启" : "已关闭")
     }
 
@@ -204,7 +232,10 @@ struct MenuWindowView: View {
                 Text("\(session.persisted.projectName ?? "未知项目") · \(session.persisted.lastActivityAt?.formatted(.relative(presentation: .named)) ?? "未知时间")")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }.frame(maxWidth: .infinity, alignment: .leading)
-            Text(stateTitle(session.state)).font(.caption).foregroundStyle(.secondary).fixedSize()
+            HStack(spacing: 4) {
+                Circle().fill(session.state == .attention ? Color.orange : Color.green).frame(width: 6, height: 6)
+                Text(stateTitle(session.state))
+            }.font(.caption).foregroundStyle(.secondary).fixedSize()
             Toggle("参与 HUD", isOn: Binding(get: { session.persisted.isIncludedInHUD }, set: { value in
                 coordinator.performAfterSaving { model.setIncluded(value, sessionID: session.id) }
             })).toggleStyle(.switch).labelsHidden().controlSize(.mini)
@@ -214,6 +245,9 @@ struct MenuWindowView: View {
 
     private func editingView(_ editing: SessionTitleEditingState) -> some View {
         MenuTitleEditor(editing: editing, coordinator: coordinator, focused: $focusedTitle)
+            .background(GeometryReader { proxy in
+                Color.clear.preference(key: EditorFrameKey.self, value: proxy.frame(in: .named("menu")))
+            })
     }
 
     private func colorPicker(_ session: SessionSnapshot) -> some View {
@@ -251,9 +285,8 @@ private struct MenuTitleEditor: View {
                     .focused(focused).disabled(editing.isSaving)
                     .onSubmit { coordinator.performAfterSaving() }
                     .onExitCommand { coordinator.cancel() }
-                if editing.session?.persisted.customTitle != nil {
-                    Button("恢复默认") { coordinator.restore() }.font(.caption2).disabled(!editing.canRestore)
-                }
+                Button("恢复默认") { coordinator.restore() }
+                    .font(.caption2).fixedSize().disabled(editing.isSaving || editing.unavailableMessage != nil)
             }
             if let message = editing.message { Text(message).font(.caption2).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
         }
@@ -275,4 +308,9 @@ private struct MenuScrollingTitle: View {
             .frame(width: geometry.size.width, alignment: .leading).clipped()
         }.frame(height: 18).contentShape(Rectangle()).onHover { hovering = $0 }
     }
+}
+
+private struct EditorFrameKey: PreferenceKey {
+    static var defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) { value = nextValue() ?? value }
 }

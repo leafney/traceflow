@@ -109,6 +109,7 @@ final class AppModel: ObservableObject {
     private var pendingHealthCheckID: String?
     private var discovery = SessionDiscoveryCoordinator()
     private var lastRecentRefreshAt: Date = .distantPast
+    private var isMenuWindowVisible = false
 
     init(defaults: UserDefaults = .standard, sessionStore: SessionStore? = nil) {
         self.sessionStore = sessionStore ?? SessionStore(url: TraceflowPaths.sessions())
@@ -182,7 +183,7 @@ final class AppModel: ObservableObject {
     func tick(now: Date = Date()) {
         recheckCompletionTimeouts(now: now)
         if let decision = scheduler.advance(now: now) { applyDisplayDecision(decision) }
-        if settingsController?.window?.isVisible == true {
+        if isMenuWindowVisible || settingsController?.window?.isVisible == true {
             if now.timeIntervalSince(lastRecentRefreshAt) >= 1 || now < lastRecentRefreshAt {
                 refreshRecentSessions(now: now)
             }
@@ -201,6 +202,15 @@ final class AppModel: ObservableObject {
             refreshSessions()
             persistSessions()
         }
+    }
+
+    func setMenuWindowVisible(_ visible: Bool) {
+        guard visible != isMenuWindowVisible else { return }
+        isMenuWindowVisible = visible
+        guard visible else { return }
+        let now = Date()
+        refreshRecentSessions(now: now)
+        if let request = discovery.openSettings(now: now) { startDiscovery(request, now: now) }
     }
 
     func openSettingsWindow() {

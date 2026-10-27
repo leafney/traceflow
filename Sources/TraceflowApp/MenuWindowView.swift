@@ -6,6 +6,7 @@ import TraceflowCore
 final class MenuEditingCoordinator: ObservableObject {
     @Published var editing: SessionTitleEditingState?
     @Published var retainedSession: SessionSnapshot?
+    @Published var focusGeneration = 0
     private var pendingAction: (() -> Void)?
     private var saving = false
     private var blurTask: Task<Void, Never>?
@@ -29,6 +30,7 @@ final class MenuEditingCoordinator: ObservableObject {
     }
 
     func scheduleBlurSave() {
+        guard !saving else { return }
         blurTask?.cancel()
         blurTask = Task {
             try? await Task.sleep(nanoseconds: 150_000_000)
@@ -49,7 +51,7 @@ final class MenuEditingCoordinator: ObservableObject {
         Task {
             let success = await editing.save()
             saving = false
-            guard success else { pendingAction = nil; return }
+            guard success else { pendingAction = nil; focusGeneration += 1; return }
             let next = pendingAction
             cancel()
             next?()
@@ -63,7 +65,7 @@ final class MenuEditingCoordinator: ObservableObject {
         Task {
             let success = await editing.restore()
             saving = false
-            if success { cancel() }
+            if success { cancel() } else { focusGeneration += 1 }
         }
     }
 }
@@ -142,6 +144,7 @@ struct MenuWindowView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
         .onAppear { controller.requestClose = { coordinator.performAfterSaving { controller.closeImmediately() } } }
         .onChange(of: coordinator.editing?.sessionID) { _, id in focusedTitle = id != nil }
+        .onChange(of: coordinator.focusGeneration) { _, _ in focusedTitle = true }
         .onChange(of: focusedTitle) { _, focused in
             if !focused, coordinator.editing != nil { coordinator.scheduleBlurSave() }
         }

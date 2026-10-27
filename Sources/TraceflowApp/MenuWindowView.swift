@@ -115,12 +115,14 @@ struct MenuWindowView: View {
                 }
                 HStack(spacing: 8) {
                     selectionMenu("HUD 布局", value: model.hudLayoutMode.menuTitle) {
-                        ForEach(HUDLayoutMode.allCases) { item in
+                        ForEach(Array(HUDLayoutMode.allCases.enumerated()), id: \.element.id) { index, item in
+                            if index > 0 { Divider() }
                             Button { openSelection = nil; coordinator.performAfterSaving { model.hudLayoutMode = item } } label: { selectionOption(item.menuTitle, selected: item == model.hudLayoutMode) }
                         }
                     }
                     selectionMenu("HUD 显示模式", value: model.hudDisplayStyle.menuTitle) {
-                        ForEach(HUDDisplayStyle.allCases) { item in
+                        ForEach(Array(HUDDisplayStyle.allCases.enumerated()), id: \.element.id) { index, item in
+                            if index > 0 { Divider() }
                             Button { openSelection = nil; coordinator.performAfterSaving { model.hudDisplayStyle = item } } label: { selectionOption(item.menuTitle, selected: item == model.hudDisplayStyle) }
                         }
                     }

@@ -102,7 +102,10 @@ struct MenuWindowView: View {
             HStack(spacing: 10) {
                 Image(nsImage: NSApplication.shared.applicationIconImage)
                     .resizable().interpolation(.high).frame(width: 32, height: 32)
-                Text("Traceflow").font(.headline)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Traceflow").font(.headline)
+                    Text("会话动态 一目了然").font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button { coordinator.performAfterSaving { controller.closeImmediately(); model.openSettingsWindow() } } label: {
                     Image(systemName: "gearshape")

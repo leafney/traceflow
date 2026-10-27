@@ -152,12 +152,18 @@ struct MenuWindowView: View {
                 }.background(.background, in: RoundedRectangle(cornerRadius: 12))
             }.padding(.horizontal, 16).padding(.bottom, 12)
             Divider()
-            HStack { Spacer(); Button("退出 Traceflow") { coordinator.performAfterSaving { NSApplication.shared.terminate(nil) } }.buttonStyle(.plain) }
+            HStack { Spacer(); Button("退出 Traceflow") { coordinator.performAfterSaving { NSApplication.shared.terminate(nil) } }.buttonStyle(.plain).keyboardShortcut("q", modifiers: .command) }
                 .padding(.horizontal, 18).padding(.vertical, 12)
         }
-        .frame(width: 410, height: 440)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-        .onAppear { controller.requestClose = { coordinator.performAfterSaving { controller.closeImmediately() } } }
+        .onAppear {
+            controller.requestClose = { coordinator.performAfterSaving { controller.closeImmediately() } }
+            controller.didClose = { colorSession = nil }
+        }
+        .onExitCommand {
+            if coordinator.editing != nil { coordinator.cancel() } else { controller.requestDismiss() }
+        }
         .onChange(of: coordinator.editing?.sessionID) { _, id in focusedTitle = id != nil }
         .onChange(of: coordinator.focusGeneration) { _, _ in
             controller.restoreEditingFocus()

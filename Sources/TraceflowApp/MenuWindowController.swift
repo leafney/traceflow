@@ -15,6 +15,7 @@ final class MenuWindowController {
     private var localMonitor: Any?
     private var globalMonitor: Any?
     var requestClose: (() -> Void)?
+    var didClose: (() -> Void)?
     var isColorPopoverVisible = false
     private var ownedColorGeneration: Int?
     var isVisible: Bool { panel?.isVisible == true }
@@ -46,6 +47,9 @@ final class MenuWindowController {
         let anchor = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
         let screen = buttonWindow.screen ?? NSScreen.main
         let frame = screen?.visibleFrame ?? anchor
+        let width = min(410, frame.width)
+        let height = min(440, frame.height)
+        panel.setContentSize(NSSize(width: width, height: height))
         let x = min(max(anchor.midX - panel.frame.width / 2, frame.minX), frame.maxX - panel.frame.width)
         let y = max(frame.minY, min(anchor.minY - panel.frame.height - 4, frame.maxY - panel.frame.height))
         panel.setFrameOrigin(NSPoint(x: x, y: y))
@@ -75,6 +79,7 @@ final class MenuWindowController {
         }
         ownedColorGeneration = nil
         isColorPopoverVisible = false
+        didClose?()
         panel?.orderOut(nil)
         model.setMenuWindowVisible(false)
         if let localMonitor { NSEvent.removeMonitor(localMonitor); self.localMonitor = nil }

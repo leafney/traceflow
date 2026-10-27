@@ -158,7 +158,10 @@ struct MenuWindowView: View {
                         if let message = model.markerColorErrorMessage { Text(message).font(.caption).foregroundStyle(.red).padding(8) }
                     }.frame(maxWidth: .infinity, minHeight: sessions.isEmpty ? 198 : 0)
                 }
+                .scrollIndicators(sessions.count > 3 ? .automatic : .hidden)
+                .scrollDisabled(sessions.isEmpty)
                 .frame(maxHeight: 198)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.08)))
                 Spacer(minLength: 0)

@@ -15,6 +15,8 @@ final class MenuWindowController {
     private var localMonitor: Any?
     private var globalMonitor: Any?
     var requestClose: (() -> Void)?
+    var isColorPopoverVisible = false
+    private var ownedColorGeneration: Int?
     var isVisible: Bool { panel?.isVisible == true }
 
     init(model: AppModel, statusItem: NSStatusItem) {
@@ -56,7 +58,23 @@ final class MenuWindowController {
         if let requestClose { requestClose() } else { closeImmediately() }
     }
 
+    func openColorPanel(sessionID: String) {
+        model.sessionColorPanel.open(sessionID: sessionID)
+        ownedColorGeneration = model.sessionColorPanel.sessionID == sessionID ? model.sessionColorPanel.generation : nil
+    }
+
+    func restoreEditingFocus() {
+        guard let panel, panel.isVisible else { return }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
     func closeImmediately() {
+        if let generation = ownedColorGeneration, model.sessionColorPanel.generation == generation {
+            model.sessionColorPanel.close()
+        }
+        ownedColorGeneration = nil
+        isColorPopoverVisible = false
         panel?.orderOut(nil)
         model.setMenuWindowVisible(false)
         if let localMonitor { NSEvent.removeMonitor(localMonitor); self.localMonitor = nil }
@@ -68,6 +86,7 @@ final class MenuWindowController {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self, self.isVisible, event.window !== self.panel else { return event }
             if event.window === NSColorPanel.shared || event.window === self.statusItem?.button?.window { return event }
+            if self.isColorPopoverVisible, event.window?.parent === self.panel { return event }
             self.requestDismiss()
             return event
         }

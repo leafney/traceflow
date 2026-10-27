@@ -90,3 +90,25 @@ final class SessionColorPanelBindingTests: XCTestCase {
         XCTAssertTrue(NSApplication.shared.sendAction(action, to: target, from: panel))
     }
 }
+
+@MainActor
+final class MenuColorPanelOwnershipTests: XCTestCase {
+    func testClosingMenuOnlyClosesItsOwnColorBinding() async throws {
+        _ = NSApplication.shared
+        let fixture = try SessionIntegrationFixture()
+        defer { fixture.cleanUp() }
+        try await fixture.hook("color-owner", event: .sessionStart)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        defer { NSStatusBar.system.removeStatusItem(item); fixture.model.sessionColorPanel.close() }
+        let controller = MenuWindowController(model: fixture.model, statusItem: item)
+        controller.openColorPanel(sessionID: "color-owner")
+        XCTAssertEqual(fixture.model.sessionColorPanel.sessionID, "color-owner")
+        controller.closeImmediately()
+        XCTAssertNil(fixture.model.sessionColorPanel.sessionID)
+
+        controller.openColorPanel(sessionID: "color-owner")
+        fixture.model.sessionColorPanel.open(sessionID: "color-owner")
+        controller.closeImmediately()
+        XCTAssertEqual(fixture.model.sessionColorPanel.sessionID, "color-owner")
+    }
+}

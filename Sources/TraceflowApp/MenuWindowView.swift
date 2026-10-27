@@ -7,8 +7,8 @@ final class MenuEditingCoordinator: ObservableObject {
     @Published var editing: SessionTitleEditingState?
     @Published var retainedSession: SessionSnapshot?
     @Published var focusGeneration = 0
+    @Published private(set) var saving = false
     private var pendingAction: (() -> Void)?
-    private var saving = false
     private var blurTask: Task<Void, Never>?
     let model: AppModel
     init(model: AppModel) { self.model = model }
@@ -35,16 +35,16 @@ final class MenuEditingCoordinator: ObservableObject {
         blurTask = Task {
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
-            performAfterSaving {}
+            performAfterSaving()
         }
     }
 
-    func performAfterSaving(_ action: @escaping () -> Void) {
+    func performAfterSaving(_ action: (() -> Void)? = nil) {
         blurTask?.cancel()
-        guard let editing else { action(); return }
-        guard !saving else { pendingAction = action; return }
+        guard let editing else { action?(); return }
+        guard !saving else { if pendingAction == nil { pendingAction = action }; return }
         if editing.draft == (editing.session?.effectiveConversationTitle ?? "") {
-            cancel(); action(); return
+            cancel(); action?(); return
         }
         pendingAction = action
         saving = true
@@ -65,7 +65,11 @@ final class MenuEditingCoordinator: ObservableObject {
         Task {
             let success = await editing.restore()
             saving = false
-            if success { cancel() } else { focusGeneration += 1 }
+            if success {
+                let next = pendingAction
+                cancel()
+                next?()
+            } else { pendingAction = nil; focusGeneration += 1 }
         }
     }
 }
@@ -108,13 +112,24 @@ struct MenuWindowView: View {
                     checkButton("钉住 HUD", value: $model.isHUDPinned)
                 }
                 HStack(spacing: 8) {
-                    Picker("HUD 布局", selection: $model.hudLayoutMode) {
+                    Picker("HUD 布局", selection: Binding(get: { model.hudLayoutMode }, set: { value in
+                        coordinator.performAfterSaving { model.hudLayoutMode = value }
+                    })) {
                         ForEach(HUDLayoutMode.allCases) { Text($0.menuTitle).tag($0) }
                     }
-                    Picker("HUD 显示模式", selection: $model.hudDisplayStyle) {
+                    Picker("HUD 显示模式", selection: Binding(get: { model.hudDisplayStyle }, set: { value in
+                        coordinator.performAfterSaving { model.hudDisplayStyle = value }
+                    })) {
                         ForEach(HUDDisplayStyle.allCases) { Text($0.menuTitle).tag($0) }
                     }
                 }.pickerStyle(.menu)
+                if !model.sessionDataHealth.allowsSaving {
+                    HStack {
+                        Text("会话数据暂时无法保存，请在设置中修复").font(.caption).foregroundStyle(.red)
+                        Spacer()
+                        Button("设置") { coordinator.performAfterSaving { controller.closeImmediately(); model.openSettingsWindow() } }.font(.caption)
+                    }.padding(8)
+                }
                 HStack {
                     Text("活跃会话").font(.headline)
                     Text("· 最近 10 分钟").font(.caption).foregroundStyle(.secondary)
@@ -144,7 +159,11 @@ struct MenuWindowView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
         .onAppear { controller.requestClose = { coordinator.performAfterSaving { controller.closeImmediately() } } }
         .onChange(of: coordinator.editing?.sessionID) { _, id in focusedTitle = id != nil }
-        .onChange(of: coordinator.focusGeneration) { _, _ in focusedTitle = true }
+        .onChange(of: coordinator.focusGeneration) { _, _ in
+            controller.restoreEditingFocus()
+            focusedTitle = true
+        }
+        .onChange(of: colorSession) { _, id in controller.isColorPopoverVisible = id != nil }
         .onChange(of: focusedTitle) { _, focused in
             if !focused, coordinator.editing != nil { coordinator.scheduleBlurSave() }
         }
@@ -195,8 +214,10 @@ struct MenuWindowView: View {
         HStack(spacing: 8) {
             ForEach(["#6C7FE8", "#E4A665", "#67B7A0", "#E16F7F", "#AC80CF", "#8192A5"], id: \.self) { color in
                 Button {
+                    model.markerColorErrorMessage = nil
                     model.requestMarkerColor(color, sessionID: session.id) { result in
                         if case .failure = result { model.markerColorErrorMessage = "会话颜色保存失败，请重试" }
+                        else if model.markerColorErrorMessage == "会话颜色保存失败，请重试" { model.markerColorErrorMessage = nil }
                     }
                     colorSession = nil
                 } label: {
@@ -204,7 +225,7 @@ struct MenuWindowView: View {
                         .overlay { if session.persisted.markerColorHex == color { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white) } }
                 }.buttonStyle(.plain).accessibilityLabel("选择颜色 \(color)")
             }
-            Button("自定义") { colorSession = nil; model.sessionColorPanel.open(sessionID: session.id) }
+            Button("自定义") { colorSession = nil; controller.openColorPanel(sessionID: session.id) }
         }.padding(12)
     }
 
@@ -222,7 +243,7 @@ private struct MenuTitleEditor: View {
             HStack(spacing: 4) {
                 TextField("会话标题", text: $editing.draft).textFieldStyle(.roundedBorder)
                     .focused(focused).disabled(editing.isSaving)
-                    .onSubmit { coordinator.performAfterSaving {} }
+                    .onSubmit { coordinator.performAfterSaving() }
                     .onExitCommand { coordinator.cancel() }
                 if editing.session?.persisted.customTitle != nil {
                     Button("恢复默认") { coordinator.restore() }.font(.caption2).disabled(!editing.canRestore)

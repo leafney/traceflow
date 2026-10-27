@@ -287,8 +287,9 @@ struct MenuWindowView: View {
             }
             Button { colorSession = nil; controller.openColorPanel(sessionID: session.id) } label: {
                 Circle()
-                    .strokeBorder(AngularGradient(colors: [.red, .orange, .yellow, .green, .cyan, .blue, .purple, .red],
-                                                  center: .center), lineWidth: 4)
+                    .fill(AngularGradient(colors: [.red, .orange, .yellow, .green, .cyan, .blue, .purple, .red],
+                                          center: .center))
+                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.35), lineWidth: 1))
                     .frame(width: 19, height: 19)
                     .contentShape(Circle())
             }

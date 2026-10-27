@@ -28,4 +28,15 @@ public enum SessionColorOptions {
         if let current, !colors.contains(current) { colors[0] = current }
         return colors.map { SessionColorOption(hex: $0, isSelected: $0 == current) }
     }
+    /// Select the black or white mark with the greater contrast against the sRGB color.
+    public static func usesDarkSelectionMark(for color: String) -> Bool {
+        guard let rgb = SessionMarkerColor.rgb(color) else { return false }
+        func linear(_ channel: Int) -> Double {
+            let value = Double(channel) / 255
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * linear(rgb.red) + 0.7152 * linear(rgb.green) + 0.0722 * linear(rgb.blue)
+        return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05)
+    }
+
 }

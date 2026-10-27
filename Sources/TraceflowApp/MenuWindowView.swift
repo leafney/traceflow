@@ -280,7 +280,8 @@ struct MenuWindowView: View {
                     colorSession = nil
                 } label: {
                     Circle().fill(Color(nsColor: SessionMarkerView.nsColor(color))).frame(width: 19, height: 19)
-                        .overlay { if option.isSelected { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white) } }
+                        .overlay(Circle().strokeBorder(Color.primary.opacity(0.35), lineWidth: 1))
+                        .overlay { if option.isSelected { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(SessionColorOptions.usesDarkSelectionMark(for: color) ? Color.black : Color.white) } }
                 }.buttonStyle(.plain).accessibilityLabel("选择颜色 \(color)")
                     .accessibilityValue(option.isSelected ? "已选择" : "未选择")
             }

@@ -29,4 +29,13 @@ final class SessionColorOptionsTests: XCTestCase {
         XCTAssertEqual(SessionColorOptions.options(sessionID: "session-a", currentColor: "invalid"), base)
         XCTAssertEqual(Set(custom.map(\.hex)).count, 6)
     }
+    func testSelectionMarkContrastForLightAndDarkColors() {
+        XCTAssertTrue(SessionColorOptions.usesDarkSelectionMark(for: "#FFFFFF"))
+        XCTAssertTrue(SessionColorOptions.usesDarkSelectionMark(for: "#E4A665"))
+        XCTAssertTrue(SessionColorOptions.usesDarkSelectionMark(for: "#67B7A0"))
+        XCTAssertFalse(SessionColorOptions.usesDarkSelectionMark(for: "#000000"))
+        XCTAssertFalse(SessionColorOptions.usesDarkSelectionMark(for: "#303080"))
+        XCTAssertFalse(SessionColorOptions.usesDarkSelectionMark(for: "invalid"))
+    }
+
 }

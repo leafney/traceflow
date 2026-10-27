@@ -80,6 +80,7 @@ struct MenuWindowView: View {
     unowned let controller: MenuWindowController
     @StateObject private var coordinator: MenuEditingCoordinator
     @State private var colorSession: String?
+    @State private var openSelection: String?
     @FocusState private var focusedTitle: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -99,8 +100,8 @@ struct MenuWindowView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "diamond.fill").frame(width: 28, height: 28).foregroundStyle(.white)
-                    .background(.primary, in: RoundedRectangle(cornerRadius: 9))
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable().interpolation(.high).frame(width: 32, height: 32)
                 Text("Traceflow").font(.headline)
                 Spacer()
                 Button { coordinator.performAfterSaving { controller.closeImmediately(); model.openSettingsWindow() } } label: {
@@ -115,12 +116,12 @@ struct MenuWindowView: View {
                 HStack(spacing: 8) {
                     selectionMenu("HUD 布局", value: model.hudLayoutMode.menuTitle) {
                         ForEach(HUDLayoutMode.allCases) { item in
-                            Button(item.menuTitle) { coordinator.performAfterSaving { model.hudLayoutMode = item } }
+                            Button { openSelection = nil; coordinator.performAfterSaving { model.hudLayoutMode = item } } label: { selectionOption(item.menuTitle, selected: item == model.hudLayoutMode) }
                         }
                     }
                     selectionMenu("HUD 显示模式", value: model.hudDisplayStyle.menuTitle) {
                         ForEach(HUDDisplayStyle.allCases) { item in
-                            Button(item.menuTitle) { coordinator.performAfterSaving { model.hudDisplayStyle = item } }
+                            Button { openSelection = nil; coordinator.performAfterSaving { model.hudDisplayStyle = item } } label: { selectionOption(item.menuTitle, selected: item == model.hudDisplayStyle) }
                         }
                     }
                 }
@@ -150,9 +151,9 @@ struct MenuWindowView: View {
                         }
                         if let message = model.recentDiscoveryMessage { Text(message).font(.caption).foregroundStyle(.secondary).padding(8) }
                         if let message = model.markerColorErrorMessage { Text(message).font(.caption).foregroundStyle(.red).padding(8) }
-                    }.frame(maxWidth: .infinity)
+                    }.frame(maxWidth: .infinity, minHeight: sessions.isEmpty ? 198 : 0)
                 }
-                .frame(maxHeight: min(200, CGFloat(max(1, sessions.count)) * 66 + (model.recentDiscoveryMessage == nil ? 0 : 30)))
+                .frame(maxHeight: 198)
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.08)))
                 Spacer(minLength: 0)
@@ -169,7 +170,7 @@ struct MenuWindowView: View {
         }
         .onAppear {
             controller.requestClose = { coordinator.performAfterSaving { controller.closeImmediately() } }
-            controller.didClose = { colorSession = nil; controller.editingArea = nil }
+            controller.didClose = { colorSession = nil; openSelection = nil; controller.editingArea = nil }
             controller.clickedOutsideEditor = { coordinator.scheduleBlurSave() }
             controller.updateHeight(sessionCount: sessions.count)
         }
@@ -182,14 +183,15 @@ struct MenuWindowView: View {
             focusedTitle = true
         }
         .onChange(of: sessions.count) { _, count in controller.updateHeight(sessionCount: count) }
-        .onChange(of: colorSession) { _, id in controller.isColorPopoverVisible = id != nil }
+        .onChange(of: colorSession) { _, id in controller.isColorPopoverVisible = id != nil || openSelection != nil }
+        .onChange(of: openSelection) { _, value in controller.isColorPopoverVisible = value != nil || colorSession != nil }
         .onChange(of: focusedTitle) { _, focused in
             if !focused, coordinator.editing != nil { coordinator.scheduleBlurSave() }
         }
     }
 
-    private func selectionMenu<Content: View>(_ title: String, value: String, @ViewBuilder content: () -> Content) -> some View {
-        Menu(content: content) {
+    private func selectionMenu<Content: View>(_ title: String, value: String, @ViewBuilder content: @escaping () -> Content) -> some View {
+        Button { coordinator.performAfterSaving { openSelection = title } } label: {
             HStack(spacing: 3) {
                 Text(title).lineLimit(1)
                 Spacer(minLength: 2)
@@ -197,8 +199,18 @@ struct MenuWindowView: View {
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
             }.font(.system(size: 12)).padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 38)
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.10)))
-        }.menuStyle(.borderlessButton).fixedSize(horizontal: false, vertical: true)
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.16)))
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+            .popover(isPresented: Binding(get: { openSelection == title }, set: { if !$0 { openSelection = nil } })) {
+                VStack(alignment: .leading, spacing: 2) { content() }
+                    .buttonStyle(.plain).padding(6).frame(minWidth: 140)
+            }
+    }
+
+    private func selectionOption(_ title: String, selected: Bool) -> some View {
+        HStack { Text(title); Spacer(); if selected { Image(systemName: "checkmark") } }
+            .padding(.horizontal, 10).padding(.vertical, 7).contentShape(Rectangle())
     }
 
     private func checkButton(_ title: String, value: Binding<Bool>) -> some View {

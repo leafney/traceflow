@@ -69,7 +69,7 @@ final class MenuWindowController {
     func updateHeight(sessionCount: Int) {
         guard let panel, panel.isVisible else { return }
         let maximum = panel.screen.map { max(1, panel.frame.maxY - $0.visibleFrame.minY) } ?? 440
-        let height = min(maximum, min(440, 262 + CGFloat(max(1, sessionCount)) * 65))
+        let height = min(maximum, min(440, 262 + CGFloat(max(3, sessionCount)) * 65))
         guard abs(panel.frame.height - height) > 0.5 else { return }
         let top = panel.frame.maxY
         panel.setFrame(NSRect(x: panel.frame.minX, y: top - height, width: panel.frame.width, height: height), display: true)

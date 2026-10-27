@@ -285,7 +285,16 @@ struct MenuWindowView: View {
                 }.buttonStyle(.plain).accessibilityLabel("选择颜色 \(color)")
                     .accessibilityValue(option.isSelected ? "已选择" : "未选择")
             }
-            Button("自定义") { colorSession = nil; controller.openColorPanel(sessionID: session.id) }
+            Button { colorSession = nil; controller.openColorPanel(sessionID: session.id) } label: {
+                Circle()
+                    .strokeBorder(AngularGradient(colors: [.red, .orange, .yellow, .green, .cyan, .blue, .purple, .red],
+                                                  center: .center), lineWidth: 4)
+                    .frame(width: 19, height: 19)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("自定义颜色")
+            .accessibilityLabel("自定义颜色")
         }.padding(12)
     }
 

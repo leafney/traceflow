@@ -14,7 +14,7 @@ final class SessionColorPanelTarget: NSObject {
 final class SessionColorPanelController {
     private weak var model: AppModel?
     private(set) var target: SessionColorPanelTarget?
-    private var generation = 0
+    private(set) var generation = 0
     private(set) var sessionID: String?
     private var sessionsObserver: AnyCancellable?
     private var healthObserver: AnyCancellable?

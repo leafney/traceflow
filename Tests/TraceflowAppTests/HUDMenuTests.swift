@@ -17,7 +17,8 @@ final class HUDMenuTests: XCTestCase {
             delegate.panelController?.hide()
             if let item = delegate.statusItem { NSStatusBar.system.removeStatusItem(item) }
         }
-        let menu = try XCTUnwrap(delegate.statusItem?.menu)
+        XCTAssertNil(delegate.statusItem?.menu)
+        let menu = delegate.makeMenu()
         fixture.model.isHUDVisible = true
         fixture.model.isHUDPinned = true
         let original = try XCTUnwrap(delegate.panelController?.window)
@@ -60,7 +61,8 @@ final class HUDMenuTests: XCTestCase {
             delegate.panelController?.hide()
             if let item = delegate.statusItem { NSStatusBar.system.removeStatusItem(item) }
         }
-        let menu = try XCTUnwrap(delegate.statusItem?.menu)
+        XCTAssertNil(delegate.statusItem?.menu)
+        let menu = delegate.makeMenu()
         var panel = try XCTUnwrap(delegate.panelController?.window)
         menu.update()
         XCTAssertEqual(menu.items[0].state, .off)

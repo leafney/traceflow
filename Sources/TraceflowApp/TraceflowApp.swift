@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let defaults: UserDefaults
     private(set) var panelController: HUDPanelController?
     private(set) var statusItem: NSStatusItem?
+    private(set) var menuWindowController: MenuWindowController?
     private var timer: Timer?
     private var isTerminating = false
     private var visibilityObserver: AnyCancellable?
@@ -78,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !isTerminating else { return .terminateLater }
         isTerminating = true
         timer?.invalidate()
+        menuWindowController?.closeImmediately()
         model.commitTransparency()
         model.sessionColorPanel.close()
         model.beginShutdown()
@@ -101,10 +103,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func configureStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = TraceflowStatusIcon.makeImage()
-        let menu = makeMenu()
-        item.menu = menu
+        item.button?.target = self
+        item.button?.action = #selector(toggleMenuWindow)
         statusItem = item
+        menuWindowController = MenuWindowController(model: model, statusItem: item)
     }
+
+    @objc private func toggleMenuWindow() { menuWindowController?.toggle() }
 
     func makeMenu() -> NSMenu {
         let menu = NSMenu()
